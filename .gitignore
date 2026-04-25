@@ -231,3 +231,6 @@ frontend/dist/
 
 # uv lockfile resolution cache
 .uv/
+
+# Mock candidate harnesses (written by `meta-harness loop --proposer mock`)
+agents/_mock_*.py

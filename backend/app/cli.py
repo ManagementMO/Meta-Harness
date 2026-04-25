@@ -290,6 +290,122 @@ def benchmark(
     typer.echo(f"\nwrote {eval_result_path}")
 
 
+@app.command()
+def loop(
+    proposer: str = typer.Option(
+        "claude",
+        "--proposer",
+        help="Proposer mode: 'claude' (real subprocess) or 'mock' (deterministic stub)",
+    ),
+    budget: int = typer.Option(
+        5,
+        "--budget",
+        help="Number of outer-loop iterations",
+    ),
+    trials: int = typer.Option(
+        5,
+        "--trials",
+        help="Trials per task during benchmark phase",
+    ),
+    workers: int = typer.Option(
+        3,
+        "--workers",
+        help="Parallel workers for benchmark phase",
+    ),
+    fresh: bool = typer.Option(
+        False,
+        "--fresh",
+        help="Wipe runs/<run-name>/ before starting",
+    ),
+    run_name: str = typer.Option(
+        None,
+        "--run-name",
+        help="Run dir under runs/. Auto-generated if omitted.",
+    ),
+    domain: str = typer.Option(
+        "coding-agent",
+        "--domain",
+        help="SKILL.md domain name (resolved to skills/meta-harness-<domain>/SKILL.md)",
+    ),
+    skill: str = typer.Option(
+        None,
+        "--skill",
+        help="Override skill path (per INTERFACES.md §5.3)",
+    ),
+    mock_bench: bool = typer.Option(
+        False,
+        "--mock-bench",
+        help=(
+            "Synthesize scores instead of running the inner loop. Useful "
+            "for fast outer-loop testing (BUILD_ORDER step 5 DoD)."
+        ),
+    ),
+    holdout: bool = typer.Option(
+        False,
+        "--holdout",
+        help="Use eval/holdout/ instead of eval/tasks/",
+    ),
+) -> None:
+    """Run the meta-harness outer loop.
+
+    Step 5 DoD: ``meta-harness loop --proposer mock --mock-bench
+    --budget 2 --fresh`` runs 2 iterations and writes
+    pending_eval.json, frontier_val.json, evolution_summary.jsonl.
+    """
+    import datetime as _dt
+
+    from app.meta_harness.outer import run_outer_loop
+    from app.meta_harness.runs import make_run_dir
+
+    if proposer not in {"claude", "mock"}:
+        typer.echo(f"--proposer must be 'claude' or 'mock' (got {proposer!r})", err=True)
+        raise typer.Exit(2)
+
+    if run_name is None:
+        run_name = "loop-" + _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    run_dir = make_run_dir(REPO_ROOT, run_name, fresh=fresh)
+    eval_tasks_dir = REPO_ROOT / "eval" / ("holdout" if holdout else "tasks")
+
+    # Skill path resolution (INTERFACES.md §5.3).
+    skill_path: Path | None = None
+    if proposer == "claude":
+        if skill:
+            sp = Path(skill)
+            skill_path = sp if sp.is_absolute() else (REPO_ROOT / sp).resolve()
+        else:
+            skill_path = REPO_ROOT / "skills" / f"meta-harness-{domain}" / "SKILL.md"
+        if not skill_path.exists():
+            typer.echo(f"skill not found: {skill_path}", err=True)
+            raise typer.Exit(2)
+
+    final_state = run_outer_loop(
+        run_dir=run_dir,
+        repo_root=REPO_ROOT,
+        eval_tasks_dir=eval_tasks_dir,
+        mock_proposer=(proposer == "mock"),
+        mock_bench=mock_bench,
+        trials=trials,
+        bench_workers=workers,
+        budget=budget,
+        skill_path=skill_path,
+    )
+
+    typer.echo(
+        json.dumps(
+            {
+                "run_dir": str(run_dir),
+                "iterations_completed": final_state["iteration"],
+                "budget_remaining": final_state["budget_remaining"],
+                "best_candidate": final_state.get("best_candidate"),
+                "n_candidates": len(final_state.get("candidates") or []),
+                "frontier": final_state.get("frontier"),
+            },
+            indent=2,
+        )
+    )
+
+
 def _find_harness_class(mod) -> type | None:
     """Find the first ``CodingAgentHarness`` subclass exported by a module."""
     import inspect
