@@ -37,8 +37,8 @@ the outer machine's `propose` node.
 ┌──────────────────────────────────────────────────────────────────────┐
 │   INNER STATE MACHINE  (LangGraph StateGraph, sandboxed subgraph)    │
 │   5-phase coding agent — orient → plan → act → verify → submit       │
-│   (Appendix C). 5 fixed tools (read_file, apply_patch, run_bash,     │
-│   grep_search, task_complete), 11 override points.                   │
+│   (Appendix C). 6 fixed tools (read_file, apply_patch, write_file,   │
+│   run_bash, grep_search, task_complete), 11 override points.         │
 │   Each candidate compiles into the same shape; only the              │
 │   prompts/methods/values change.                                     │
 └──────────────────────────────────────────────────────────────────────┘

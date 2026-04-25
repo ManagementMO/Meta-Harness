@@ -1,0 +1,9 @@
+{
+  "id": "task-001-fix-typo",
+  "tier": "bug-fix",
+  "instruction": "There is a bug in calculator.py: the `add(a, b)` function is implemented as `a - b`. Fix it so `add(a, b)` returns `a + b`. Do not change `sub()`. All tests in tests/test_calculator.py must pass.",
+  "test_command": "pytest tests/test_calculator.py -q",
+  "expected_files_changed": ["calculator.py"],
+  "baseline_pass_rate": 0.70,
+  "best_known_pass_rate": 0.95
+}

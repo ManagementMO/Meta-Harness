@@ -54,13 +54,13 @@ class CodingAgentState(TypedDict):
 
 ### 1.3 `Candidate` — element of `MetaHarnessState.candidates`
 
-*DERIVED — neither appendix gives a complete dataclass; this minimal
-shape is the union of fields used in pending_eval.json (proposer-written),
-the validate/benchmark/update_frontier nodes (graph-enriched), and the
-trace structure (Appendix C §C.10).*
+*Locked. Synthesized from the union of fields used in pending_eval.json
+(proposer-written), the validate/benchmark/update_frontier nodes
+(graph-enriched), and the trace structure (Appendix C §C.10).*
 
 ```python
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 @dataclass
@@ -72,6 +72,7 @@ class Candidate:
     axis: Literal["exploration", "exploitation"]
     expected_score_delta: float | None
     iteration: int                  # outer-loop iteration that produced it
+    traces_dir: Path                # runs/{run_id}/candidates/{name}/traces/ — created at propose-time, populated at benchmark-time, never None
     status: Literal["pending", "smoke_failed", "evaluated", "rejected", "accepted"]
     scores: dict | None             # eval-result.json content; None until benchmark
     delta: float | None             # score - parent.score; None until update_frontier
@@ -111,17 +112,20 @@ single-domain coding-agent). Class name is always `CodingAgentHarness`.
 
 ### 2.2 `frontier_val.json` — current Pareto frontier
 
-*DERIVED — Stanford's two reference examples ship two different shapes
-(text-classification's `_pareto` array vs. TB2's per-task dict). Below is
-our synthesis: Pareto on (accuracy × tokens) per Appendix C §C.11.*
+*Locked. Pareto on (accuracy × tokens) per Appendix C §C.11. Each
+candidate carries `dominated_by_names`: empty list for Pareto-optimal,
+otherwise the names of candidates that dominate it. The dashboard's
+frontier rendering filters on `dominated_by_names == []`.*
 
 ```json
 {
   "iteration": 4,
-  "_pareto": [
-    {"name": "more-specific-descriptions", "accuracy": 0.80, "avg_tokens": 24800},
-    {"name": "early-exit-on-auth", "accuracy": 0.74, "avg_tokens": 18200}
+  "candidates": [
+    {"name": "more-specific-descriptions", "accuracy": 0.80, "avg_tokens": 24800, "dominated_by_names": []},
+    {"name": "early-exit-on-auth",         "accuracy": 0.74, "avg_tokens": 18200, "dominated_by_names": []},
+    {"name": "tighter-tool-hashing",       "accuracy": 0.66, "avg_tokens": 21000, "dominated_by_names": ["more-specific-descriptions", "early-exit-on-auth"]}
   ],
+  "_pareto_names": ["more-specific-descriptions", "early-exit-on-auth"],
   "_best": {"name": "more-specific-descriptions", "accuracy": 0.80, "avg_tokens": 24800},
   "per_task": {
     "task-001-fix-typo":     {"best_candidate": "more-specific-descriptions", "pass_rate": 0.95},
@@ -130,15 +134,24 @@ our synthesis: Pareto on (accuracy × tokens) per Appendix C §C.11.*
 }
 ```
 
+`_pareto_names` is a convenience derived from `dominated_by_names == []`;
+both forms are present so the dashboard can choose by render path.
+
 ### 2.3 `evolution_summary.jsonl` — append-only candidate log
 
-*DERIVED — synthesis of Stanford's two shapes (text-classification's
-`update_evolution_summary` and TB2's variant). One JSON per line, one line
-per evaluated candidate.*
+*Locked. One JSON per line, one line per evaluated candidate.
+`parent_candidate_name` lets the dashboard reconstruct the trajectory
+tree without scanning every status.json.*
 
 ```jsonl
-{"iteration": 1, "candidate": "retry-on-test-fail", "import_path": "agents.retry_on_test_fail:CodingAgentHarness", "parent": "baseline", "axis": "exploration", "hypothesis": "...", "scores": {"accuracy": 0.70, "per_task": {...}}, "delta": 0.08, "outcome": "70.0% (+8.0%)", "tokens": 23400, "cost_usd": 0.42, "timing_s": {"propose": 38.2, "bench": 184.6, "wall": 226.0}}
+{"iteration": 1, "candidate": "retry-on-test-fail", "import_path": "agents.retry_on_test_fail:CodingAgentHarness", "parent_candidate_name": null, "axis": "exploration", "hypothesis": "...", "scores": {"accuracy": 0.70, "per_task": {...}}, "delta": 0.08, "outcome": "70.0% (+8.0%)", "tokens": 23400, "cost_usd": 0.42, "timing_s": {"propose": 38.2, "bench": 184.6, "wall": 226.0}}
+{"iteration": 4, "candidate": "more-specific-descriptions", "import_path": "agents.more_specific_descriptions:CodingAgentHarness", "parent_candidate_name": "early-exit-on-auth", "axis": "exploitation", "hypothesis": "...", "scores": {"accuracy": 0.80, "per_task": {...}}, "delta": 0.06, "outcome": "80.0% (+6.0%)", "tokens": 24800, "cost_usd": 0.45, "timing_s": {"propose": 41.0, "bench": 191.2, "wall": 235.4}}
 ```
+
+`parent_candidate_name` is `null` for the baseline; the parent
+candidate's name otherwise. This is the same field as
+`Candidate.parent` (§1.3) at serialization time, renamed for clarity in
+the persisted log.
 
 ### 2.4 `proposer-sessions/iter-{N}/session.json`
 
@@ -315,8 +328,10 @@ missed empty-list edge case → test_median_empty failed.")
 
 ## 3. Inner-loop tool I/O schemas (the FIXED contract)
 
-These five tools are the contract with the evaluator. The proposer cannot
-modify them. *Verbatim from Appendix C §C.6.*
+These six tools are the contract with the evaluator. The proposer cannot
+modify them. Tool schemas for read_file, apply_patch, run_bash,
+grep_search, and task_complete are *verbatim from Appendix C §C.6*;
+write_file (§3.6) expands the §C.6.2 fallback into the formal tool list.
 
 ### 3.1 `read_file`
 
@@ -353,7 +368,28 @@ Returns: line-numbered content. Files >2000 lines must specify a range or get an
   }
 }
 ```
-On context mismatch, returns structured error: `"Patch context lines did not match. The file at lines 42-46 reads: ..."`.
+**Failure response** (structured error):
+
+```json
+{
+  "status": "error",
+  "error_type": "context_mismatch",
+  "error_message": "Patch context did not match at lines 42-46. The file currently reads:\n<content>\nEdit the patch to match this and retry.",
+  "context_echo": {
+    "path": "stats.py",
+    "start_line": 42,
+    "end_line": 46,
+    "content": "<actual current content of those lines>"
+  }
+}
+```
+
+`error_type` ∈ {`context_mismatch`, `file_not_found`, `invalid_patch`}.
+On `context_mismatch`, `context_echo` is populated with the current file
+content at the failed range so the model can fix the patch without
+re-reading the file (per Appendix C §C.6.2's "this tells the model
+exactly what to fix" rule). On `file_not_found` or `invalid_patch`,
+`context_echo` is `null`.
 
 ### 3.3 `run_bash`
 
@@ -404,9 +440,50 @@ sed, head, tail, find, diff, make`. **No** `curl, wget, ssh`.
 }
 ```
 
-A `write_file` fallback exists for new-file creation; its docstring says
-"prefer `apply_patch` for editing existing files." Whether `write_file` is
-overridable is **not specified in Appendix C** — flagged in §7.
+### 3.6 `write_file`
+
+```json
+{
+  "name": "write_file",
+  "description": "Create a new file. Errors if the file already exists — use apply_patch to modify existing files. Use this only for files that do not yet exist in the workspace.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path":    {"type": "string"},
+      "content": {"type": "string"}
+    },
+    "required": ["path", "content"]
+  }
+}
+```
+
+**Return shape** (mirrors apply_patch's structured pattern):
+
+```json
+{
+  "status": "ok",
+  "path": "geometry/point.py",
+  "bytes_written": 412
+}
+```
+
+```json
+{
+  "status": "error",
+  "error_type": "file_exists",
+  "error_message": "File 'geometry/point.py' already exists. Use apply_patch to modify it."
+}
+```
+
+`status` ∈ {`ok`, `error`}. On `ok`, `bytes_written` is set. On `error`,
+`error_type` ∈ {`file_exists`, `invalid_path`, `write_failed`} and
+`error_message` is set.
+
+This expands Appendix C §C.6.2's `write_file` fallback into the formal
+tool list; both `INTERFACES.md` and `ARCHITECTURE_SECTION_1.md` are now
+the canonical source for the tool count (six). `write_file`, like the
+other five tools, is part of the FIXED contract — not overridable by
+candidates.
 
 ---
 
@@ -470,13 +547,37 @@ Constraints (per Claude Code skill spec): `name` ≤64 chars, `description`
 
 Body length: 100–200 lines. Total file: ~5 KB Markdown.
 
-### 5.3 Skill loading mechanism (PHASE 1.3 — STILL OPEN)
+### 5.3 Skill loading mechanism (PHASE 1.3 — RESOLVED)
 
-Where `meta-harness loop` reads SKILL.md from is **not yet decided**. Three
-candidates: (a) repo path `skills/<domain>/SKILL.md`, (b) XDG path
-`~/.meta-harness/skills/<domain>/SKILL.md`, (c) explicit `--skill <path>`
-CLI flag, (d) some combination. This is called in §6.1 (`POST /runs`)
-where the `domain` field implies a SKILL.md lookup.
+`meta-harness loop` resolves `skill_path` in this precedence order:
+
+1. **Absolute path** (starts with `/`) — used directly.
+2. **Relative path** — resolved against repo root (the directory holding
+   the workspace `pyproject.toml`).
+3. **Omitted** — defaults to `skills/meta-harness-coding-agent/SKILL.md`
+   (relative to repo root).
+
+**Validation at run-start** (before the propose node executes):
+
+- File exists and is readable.
+- Parses as YAML frontmatter + Markdown body.
+- Frontmatter has required `name` (≤64 chars) and `description`
+  (≤1024 chars) fields.
+- Body has all 6 required sections (per §5.2).
+- On any failure: refuse to start the run with a clear error; do not
+  partial-init.
+
+**CLI surface:**
+
+- `meta-harness loop` (no flag) → uses default `skill_path`.
+- `meta-harness loop --skill <path>` → explicit override.
+- `meta-harness loop --skill-dir <dir>` → resolves to `<dir>/SKILL.md`
+  (convenience for users with multiple domain skills).
+
+The HTTP `POST /runs` body's `domain` field continues to map a known
+domain name to its default `skill_path` via these same rules; explicit
+`skill_path` may also be passed in the request body to override the
+domain-default lookup.
 
 ---
 
@@ -490,7 +591,7 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 
 | Method | Path | Request | Response | Status |
 |---|---|---|---|---|
-| `POST` | `/runs` | `{"domain": "coding-agent", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25"}` | `{"run_id": "run-...", "thread_id": "run-...", "status": "running"}` | 202 |
+| `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25"}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "current_iteration": 0}` | **201** |
 | `GET`  | `/runs` | — | `{"runs": [{"run_id", "thread_id", "status", "started_at", "current_iteration", "best_score"}]}` | 200 |
 | `GET`  | `/runs/{run_id}` | — | full `RunInfo` (run dir manifest + frontier_val + last few summary rows) | 200 |
 | `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to all branches via `branch_registry`) | 200 |
@@ -570,29 +671,49 @@ Blank line terminates each event. Reconnect via `Last-Event-ID` header
 | `memory-pattern-stored` | end-of-run memory write | `{thread_id, namespace, key, score_delta}` |
 | `error` | any node exception | `{thread_id, node, message, traceback}` |
 
+### 7.3 Closed-set enforcement rule
+
+The 11 event types in §7.2 are a **closed set, enforced at runtime**.
+
+- To add a new SSE event type post-launch, both `INTERFACES.md` and
+  `frontend/lib/sse.ts` must update in the same commit.
+- The backend SSE channel registry (`backend/app/streaming.py`) maintains
+  a registered allowlist of event-type strings derived from §7.2.
+  `emit(event_type, payload)` for an unregistered type raises a
+  500-class error rather than silently dropping; this surfaces drift in
+  CI and at runtime instead of degrading the dashboard.
+- Closed-ness is enforced, not just documented.
+
+### 7.4 Subscription model — per-run multiplex (rationale)
+
+The dashboard subscribes once per run via `GET /runs/{run_id}/stream`,
+which multiplexes events from all branches. `thread_id` is on every
+event payload; the frontend filters by it for view-specific updates.
+
+Rationale: a user viewing a run wants to see all branches simultaneously
+— the demo-day beat is two branches growing on screen at once. The
+per-thread alternative (one EventSource per branch, per Appendix A §A.5)
+would force the frontend to subscribe / unsubscribe as forks happen,
+which is fragile during a live demo. Multiplexing costs one extra field
+(`thread_id`) per event; cheap.
+
 ---
 
-## 8. Open questions / undefined in appendices
+## 8. Resolutions of formerly-open questions
 
-These are surfaced rather than designed, per the brief.
+All 8 items previously surfaced here are now resolved. The locking pass
+above pulled each into the relevant section.
 
-1. **Skill loading mechanism (Phase 1.3).** Repo path / XDG / CLI flag
-   — see §5.3.
-2. **`Candidate` dataclass exact shape.** Derived in §1.3 from union of
-   appendices' field uses; confirm before locking.
-3. **`frontier_val.json` shape.** Stanford ships two different shapes;
-   our synthesis is in §2.2. Confirm.
-4. **`evolution_summary.jsonl` row shape.** Same situation as above; our
-   synthesis is in §2.3.
-5. **Whether `write_file` (the new-file-creation fallback) is part of
-   the FIXED contract or overridable.** Appendix C §C.6.2 says
-   `write_file` exists but its docstring discourages its use; whether
-   it's a 6th tool or a static helper isn't stated.
-6. **REST endpoint shapes** are entirely derived from PROJECT_LAYOUT.md
-   and the architecture; no appendix specifies them.
-7. **SSE event types are a closed set?** §7.2 lists 11 types. No
-   appendix specifies whether more should be reserved (e.g. for
-   per-trial inner-loop events streamed up to the dashboard).
-8. **Dashboard subscription model (per-run vs per-thread SSE).** §7
-   commits to per-run multiplexed; Appendix A §A.5 implies per-thread.
-   We diverge intentionally to limit browser connection count; confirm.
+| # | Topic | Resolution |
+|---|---|---|
+| 1 | Skill loading mechanism (Phase 1.3) | §5.3 — `skill_path` precedence rules + `--skill` / `--skill-dir` CLI |
+| 2 | `Candidate` dataclass shape | §1.3 — `traces_dir: Path` is non-optional |
+| 3 | `frontier_val.json` shape | §2.2 — `dominated_by_names: list[str]` per candidate; `_pareto_names` convenience |
+| 4 | `evolution_summary.jsonl` row shape | §2.3 — `parent_candidate_name: str \| null` added |
+| 5 | `write_file` status | §3.6 — formal 6th fixed tool with structured return shape |
+| 6 | REST endpoint shapes | §6 — `POST /runs` returns **201 Created** + `Location` header |
+| 7 | SSE event-types closed-set | §7.3 — runtime-enforced allowlist; 500 on unknown type |
+| 8 | SSE subscription model | §7.4 — per-run multiplex with `thread_id` per event |
+
+If a genuinely new ambiguity surfaces during implementation, it goes back
+into this section as a 9th item rather than being silently designed.

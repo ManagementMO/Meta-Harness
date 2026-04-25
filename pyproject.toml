@@ -1,0 +1,16 @@
+[project]
+name = "meta-harness-monorepo"
+version = "0.1.0"
+description = "Meta-Harness — LangGraph-native substrate for self-improving agent harnesses (workspace root)"
+requires-python = ">=3.11"
+dependencies = [
+    "meta_harness",
+    "meta_harness_backend",
+]
+
+[tool.uv.workspace]
+members = ["sdk", "backend"]
+
+[tool.uv.sources]
+meta_harness = { workspace = true }
+meta_harness_backend = { workspace = true }

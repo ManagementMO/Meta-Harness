@@ -1,0 +1,32 @@
+# Local Postgres for Meta-Harness — AsyncPostgresSaver checkpointer +
+# PostgresStore cross-run memory.
+#
+# Usage:
+#   docker compose -f infra/docker-compose.yml up -d postgres
+#   docker compose -f infra/docker-compose.yml logs -f postgres
+#   docker compose -f infra/docker-compose.yml down -v   # wipe volume
+#
+# The DSN matches .env.example:
+#   POSTGRES_DSN=postgresql://meta_harness:meta_harness@localhost:5432/meta_harness
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: meta-harness-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: meta_harness
+      POSTGRES_PASSWORD: meta_harness
+      POSTGRES_DB: meta_harness
+    ports:
+      - "5432:5432"
+    volumes:
+      - meta_harness_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meta_harness -d meta_harness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  meta_harness_pgdata:
