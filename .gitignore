@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# === Meta-Harness project-specific ===
+
+# Per-run outputs (filesystem traces, candidate harnesses, proposer sessions)
+runs/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
+frontend/out/
+frontend/dist/
+
+# uv lockfile resolution cache
+.uv/

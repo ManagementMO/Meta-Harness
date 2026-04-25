@@ -45,7 +45,7 @@ meta-harness/                                              # Repo root (uv works
 │   │   │   ├── state.py                                   # MetaHarnessState + CodingAgentState TypedDicts
 │   │   │   ├── proposer.py                                # ⚠ claude_wrapper.py-shaped: subprocess + stream-json parsing (body of `propose` node)
 │   │   │   ├── harness.py                                 # CodingAgentHarness base + the 11 override points
-│   │   │   ├── tools.py                                   # 5 fixed inner-loop tools (read_file/apply_patch/run_bash/grep_search/task_complete)
+│   │   │   ├── tools.py                                   # 6 fixed inner-loop tools (read_file/apply_patch/write_file/run_bash/grep_search/task_complete)
 │   │   │   ├── sandbox.py                                 # /tmp/meta-harness-task-{uuid}/ process isolation, rlimits
 │   │   │   ├── frontier.py                                # Pareto frontier on (accuracy × tokens)
 │   │   │   ├── memory.py                                  # PostgresStore wrapper for cross-run patterns
