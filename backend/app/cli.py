@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 
 # The meta-harness CLI imports ``agents.<n>`` dynamically at runtime.
 # ``agents/`` lives at the repo root, so we add it to sys.path before
@@ -20,6 +21,10 @@ import typer
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# Load .env from the repo root so ANTHROPIC_API_KEY / POSTGRES_DSN are
+# available before any subcommand instantiates a harness or a saver.
+load_dotenv(REPO_ROOT / ".env")
 
 
 app = typer.Typer(
