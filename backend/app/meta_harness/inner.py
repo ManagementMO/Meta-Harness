@@ -47,6 +47,8 @@ def _depth_limited_tree(workspace: Path, max_depth: int = 3) -> str:
             cwd=workspace,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         return proc.stdout
@@ -300,6 +302,8 @@ def verify(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, An
             cwd=workspace,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         tests_pass = proc.returncode == 0

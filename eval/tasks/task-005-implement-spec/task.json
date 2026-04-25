@@ -1,0 +1,9 @@
+{
+  "id": "task-005-implement-spec",
+  "tier": "multi-file",
+  "instruction": "Implement Point and Line classes in geometry/__init__.py per the spec in README.md. The tests in tests/test_geometry.py exercise the contract; all of them must pass. Do not modify the README or the tests.",
+  "test_command": "pytest tests/test_geometry.py -q",
+  "expected_files_changed": ["geometry/__init__.py"],
+  "baseline_pass_rate": 0.45,
+  "best_known_pass_rate": 0.85
+}

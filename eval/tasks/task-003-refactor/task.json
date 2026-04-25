@@ -1,0 +1,9 @@
+{
+  "id": "task-003-refactor",
+  "tier": "restructure",
+  "instruction": "The functions process_admins, process_managers, and process_engineers in util.py duplicate the same filter+normalize logic with only the role string differing. Refactor util.py to share the common logic via a single helper function. The public API must NOT change: process_admins, process_managers, and process_engineers must all remain importable from util with the same names and behavior. All tests in tests/test_util.py must continue to pass.",
+  "test_command": "pytest tests/test_util.py -q",
+  "expected_files_changed": ["util.py"],
+  "baseline_pass_rate": 0.35,
+  "best_known_pass_rate": 0.75
+}

@@ -124,6 +124,8 @@ def run_in_sandbox(
         cwd=sandbox_dir,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout_sec,
         preexec_fn=_apply_rlimits if _HAS_RLIMIT and sys.platform != "win32" else None,
     )

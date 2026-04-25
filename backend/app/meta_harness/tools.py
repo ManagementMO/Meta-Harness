@@ -325,6 +325,8 @@ def apply_patch(workspace: Path, path: str, patch: str) -> dict[str, Any]:
             cwd=workspace,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if check.returncode != 0:
             stderr = check.stderr.strip()
@@ -358,6 +360,8 @@ def apply_patch(workspace: Path, path: str, patch: str) -> dict[str, Any]:
             cwd=workspace,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if apply_proc.returncode != 0:
             return {
@@ -443,6 +447,8 @@ def grep_search(
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
     )
     matches = proc.stdout[-_GREP_OUTPUT_LIMIT:]
