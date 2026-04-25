@@ -231,3 +231,10 @@ frontend/dist/
 
 # uv lockfile resolution cache
 .uv/
+
+# Proposer-generated candidate harnesses are run artifacts, not source.
+# Only baseline.py and __init__.py are committed; everything else
+# (mock stubs and real candidates) is per-run output.
+agents/*.py
+!agents/__init__.py
+!agents/baseline.py

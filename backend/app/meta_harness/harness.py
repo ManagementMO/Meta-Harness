@@ -112,8 +112,13 @@ class CodingAgentHarness:
     # Override 4 — verify→act retry budget
     MAX_VERIFY_RETRIES: int = 3
 
-    # Model knobs (not strict override points but candidates may tune)
-    MODEL: str = "claude-sonnet-4-6"
+    # Model knobs (not strict override points but candidates may tune).
+    # Default = Haiku 4.5: rate-limit-friendly for parallel benchmarks,
+    # ~10× cheaper than Sonnet, capable enough for the 5 calibration
+    # tasks. Override with ``META_HARNESS_INNER_MODEL`` for Sonnet/Opus.
+    MODEL: str = os.environ.get(
+        "META_HARNESS_INNER_MODEL", "claude-haiku-4-5-20251001"
+    )
     MAX_TOKENS: int = 4096
 
     def __init__(self, *, api_key: str | None = None) -> None:
