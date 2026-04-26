@@ -118,7 +118,8 @@ async def orient(state: CodingAgentState, harness: CodingAgentHarness) -> dict[s
 
 async def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
     """Phase 2: produce a structured plan via forced tool call (async)."""
-    summary = state["orient_summary"] or {}
+    orient_summary = state["orient_summary"] or {}
+    summary = harness._build_initial_context(orient_summary)
     instruction = state["task"]["instruction"]
 
     prompt = harness.PLAN_PROMPT_TEMPLATE.format(
@@ -403,14 +404,26 @@ async def submit(state: CodingAgentState, harness: CodingAgentHarness) -> dict[s
 # ──────────────────────────────────────────────────────────────────────
 
 
-def _route_after_verify(state: CodingAgentState) -> str:
+def _route_after_verify(state: CodingAgentState, max_verify_retries: int = 3) -> str:
     """Conditional edge: loop back to act on test failure if budget remains."""
     verify_result = state.get("verify_result") or {}
     if verify_result.get("tests_pass", False):
         return "submit"
-    if state.get("verify_attempts", 0) >= 3:
+    if state.get("verify_attempts", 0) >= max_verify_retries:
         return "submit"
     return "act"
+
+
+def _route_after_verify_for_harness(
+    state: CodingAgentState, harness: CodingAgentHarness
+) -> str:
+    """Conditional edge using the harness' retry policy."""
+    verify_result = state.get("verify_result") or {}
+    if verify_result.get("tests_pass", False):
+        return "submit"
+    if state.get("verify_attempts", 0) >= harness.MAX_VERIFY_RETRIES:
+        return "submit"
+    return "act" if harness.should_loop_back_to_act(verify_result) else "submit"
 
 
 def build_inner_graph(harness: CodingAgentHarness, *, checkpointer: Any = None) -> Any:
@@ -451,7 +464,7 @@ def build_inner_graph(harness: CodingAgentHarness, *, checkpointer: Any = None) 
     g.add_edge("act", "verify")
     g.add_conditional_edges(
         "verify",
-        _route_after_verify,
+        lambda s: _route_after_verify_for_harness(s, harness),
         {"act": "act", "submit": "submit"},
     )
     g.add_edge("submit", END)

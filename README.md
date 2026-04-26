@@ -62,7 +62,7 @@ The substrate IS the contribution.
       │       — the search space
                                   │
                                   ▼  traces, scores, file diffs streamed via SSE
-   DASHBOARD  (Next.js 15)
+   DASHBOARD  (Next.js 16)
    ───────────────────────
    ▸ outer state graph (ReactFlow) — live nodes lighting up per iteration
    ▸ candidate trajectory tree (D3) — branches when you fork a checkpoint
@@ -115,7 +115,7 @@ cp .env.example .env                                          # add ANTHROPIC_AP
 uv sync
 docker compose -f infra/docker-compose.yml up -d postgres
 
-# Run the test suite (47 passes: 42 LLM-free + 4 Postgres-backed + 1 live LLM)
+# Run the backend test suite (live LLM test skips without ANTHROPIC_API_KEY)
 cd backend && uv run pytest tests/ -q
 
 # Smoke-test the inner loop end-to-end on one task (~24 s, ~$0.05)
@@ -137,7 +137,8 @@ uv run meta-harness resume <run-name>
 
 The implementation is tracked as a topological sequence of 13 verified
 steps in `docs/BUILD_ORDER.md`, each with a literal **definition-of-done**
-command that proves it works. **7 of 13 complete; 47 tests green.**
+command that proves it works. Backend tests currently pass with the live
+LLM test skipped when `ANTHROPIC_API_KEY` is unavailable.
 
 | Step | Goal | Status |
 |---|---|---|
@@ -209,8 +210,8 @@ meta-harness/
 │   │       ├── runs.py                        # filesystem lifecycle
 │   │       ├── memory.py                      # cross-run patterns      (step 8)
 │   │       └── branches.py                    # time-travel forks       (step 9)
-│   └── tests/                                 # 47 tests passing
-├── frontend/                                  # Next.js 15 dashboard    (step 11)
+│   └── tests/                                 # backend pytest suite
+├── frontend/                                  # Next.js 16 dashboard    (step 11)
 ├── sdk/meta_harness/                          # public Python library
 ├── skills/meta-harness-coding-agent/SKILL.md  # the proposer's workflow
 ├── eval/
@@ -263,9 +264,9 @@ in the same commit.
 | Inner-loop LLM | Claude Haiku 4.5 (default; rate-limit-friendly + ~10× cheaper than Sonnet) |
 | Proposer LLM | Claude Code CLI subprocess (subscription auth) |
 | CLI | Typer + python-dotenv |
-| Frontend | Next.js 15, Tailwind 4, ReactFlow, D3, Monaco |
+| Frontend | Next.js 16, Tailwind 4, ReactFlow, D3, Monaco |
 | Workspace tooling | uv (workspace mode: `sdk/` + `backend/`) |
-| Testing | pytest, pytest-asyncio (`asyncio_mode = "auto"`), 47 passing |
+| Testing | pytest, pytest-asyncio (`asyncio_mode = "auto"`), Playwright |
 
 `META_HARNESS_INNER_MODEL` env var overrides the inner-loop model if a
 higher API tier is available (e.g. `claude-sonnet-4-6`).

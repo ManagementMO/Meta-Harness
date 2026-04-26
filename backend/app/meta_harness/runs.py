@@ -17,15 +17,44 @@ Layout (per Appendix C §C.10 + INTERFACES.md §2):
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
+SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
+
+
+def validate_artifact_name(name: str, *, kind: str = "artifact") -> str:
+    """Validate a filesystem artifact name used under runs/."""
+    if not SAFE_NAME_RE.fullmatch(name):
+        raise ValueError(
+            f"invalid {kind} name {name!r}; use 1-128 letters, numbers, '.', '_', or '-'"
+        )
+    return name
+
+
+def _contained_child(parent: Path, name: str, *, kind: str) -> Path:
+    validate_artifact_name(name, kind=kind)
+    resolved_parent = parent.resolve()
+    child = (resolved_parent / name).resolve()
+    try:
+        child.relative_to(resolved_parent)
+    except ValueError as exc:
+        raise ValueError(f"invalid {kind} path: {name!r}") from exc
+    return child
+
+
+def make_run_path(repo_root: Path, run_name: str) -> Path:
+    """Return the validated path for ``runs/{run_name}``."""
+    return _contained_child(repo_root / "runs", run_name, kind="run")
+
+
 def make_run_dir(repo_root: Path, run_name: str, *, fresh: bool = False) -> Path:
     """Create or return the run directory. Wipes if ``fresh=True``."""
-    run_dir = repo_root / "runs" / run_name
+    run_dir = make_run_path(repo_root, run_name)
     if fresh and run_dir.exists():
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -79,7 +108,7 @@ def read_frontier(run_dir: Path) -> dict[str, Any] | None:
 
 def candidate_dir(run_dir: Path, candidate_name: str) -> Path:
     """Return the candidate's directory; create if missing."""
-    d = run_dir / "candidates" / candidate_name
+    d = _contained_child(run_dir / "candidates", candidate_name, kind="candidate")
     d.mkdir(parents=True, exist_ok=True)
     return d
 

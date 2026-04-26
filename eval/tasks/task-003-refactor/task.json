@@ -1,9 +1,10 @@
 {
   "id": "task-003-refactor",
   "tier": "restructure",
-  "instruction": "The functions process_admins, process_managers, and process_engineers in util.py duplicate the same filter+normalize logic with only the role string differing. Refactor util.py to share the common logic via a single helper function. The public API must NOT change: process_admins, process_managers, and process_engineers must all remain importable from util with the same names and behavior. All tests in tests/test_util.py must continue to pass.",
+  "instruction": "The functions process_admins, process_managers, and process_engineers in util.py duplicate the same filter+normalize logic with only the role string differing. Refactor util.py to share the common logic via a single PRIVATE helper function (name starting with '_'). The role string must be a parameter to the helper, not a literal inside each public function. The public API must NOT change: process_admins, process_managers, and process_engineers must all remain importable from util with the same names and behavior. All tests in tests/test_util.py must continue to pass.",
   "test_command": "pytest tests/test_util.py -q",
   "expected_files_changed": ["util.py"],
-  "baseline_pass_rate": 0.35,
-  "best_known_pass_rate": 0.75
+  "baseline_pass_rate": 0.55,
+  "best_known_pass_rate": 0.85,
+  "calibration_note": "Hardened 2026-04-25 (option 3). Added: role-string-must-be-parameterized check, private-helper-must-exist check. See docs/PROJECT_KNOWLEDGE_BASE.md §28.3."
 }

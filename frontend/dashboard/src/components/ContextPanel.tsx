@@ -12,8 +12,8 @@ export function ContextPanel() {
 
   const tabs = ['chart', 'diff', 'test', 'memory'] as const;
   const selected = selectedNode ?? tree.find(n => n.status === 'best')?.candidate ?? 'few-shot-demos';
-  const diff = getDiff(selected);
-  const testOut = getTestOutput(selected);
+  const diff = getDiff();
+  const testOut = getTestOutput();
 
   return (
     <div className="flex-1 flex flex-col bg-panel rounded overflow-hidden min-h-0">

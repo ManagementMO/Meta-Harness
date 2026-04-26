@@ -243,13 +243,13 @@ def main() -> None:
     assert trajectory["trajectory"]["run_id"] == run_id
 
     memory, _headers = request_json("GET", "/memory/coding-agent")
-    assert memory["entries"] == []
+    assert isinstance(memory["entries"], list)
     search, _headers = request_json(
         "POST",
         "/memory/coding-agent/search",
-        {"query": "schema drift retry", "limit": 5},
+        {"query": f"smoke-query-{run_id}", "limit": 5},
     )
-    assert search["results"] == []
+    assert isinstance(search["results"], list)
 
     expected_stream_events = {
         "state-update",

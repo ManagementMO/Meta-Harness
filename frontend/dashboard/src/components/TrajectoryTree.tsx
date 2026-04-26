@@ -76,7 +76,6 @@ export function TrajectoryTree() {
 
     const byName = new Map(laid.map(n => [n.candidate, n]));
 
-    const maxY = Math.max(...laid.map(n => n.y)) + NODE_H + 40;
     const maxX = Math.max(...laid.map(n => n.x)) + NODE_W + 30;
 
     // Dot grid background
@@ -161,6 +160,7 @@ export function TrajectoryTree() {
         .attr('transform', `translate(${node.x}, ${node.y})`)
         .attr('opacity', opacity)
         .attr('cursor', 'pointer')
+        .attr('data-testid', 'trajectory-node')
         .on('click', () => dispatch({ type: 'SELECT_NODE', payload: node.candidate }))
         .on('contextmenu', (event: MouseEvent) => {
           event.preventDefault();

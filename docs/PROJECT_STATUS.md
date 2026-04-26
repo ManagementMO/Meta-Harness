@@ -20,11 +20,11 @@ Meta-Harness is a LangGraph-native substrate for self-improving coding agent har
 | 8 | Cross-run memory (PostgresStore) | ✅ Complete | 15 tests |
 | 9 | Time-travel: history + fork + concurrent branches | ✅ Complete | 5 tests |
 | 10 | FastAPI REST + SSE with closed-set registry | ✅ Complete | 4 tests |
-| 11 | Frontend dashboard + visualizations | ❌ Not started | — |
-| 12 | CLI completeness + holdout evaluation | 🟡 Partial | — |
+| 11 | Frontend dashboard + visualizations | ✅ Complete | 7 Playwright tests |
+| 12 | CLI completeness + holdout evaluation | ✅ Complete | CLI tests + 2 holdout tasks |
 | 13 | End-to-end demo dry-run (acceptance) | ❌ Not started | — |
 
-**Overall: 10 of 13 steps complete.**
+**Overall: 12 of 13 steps complete.**
 
 ---
 
@@ -85,23 +85,10 @@ Meta-Harness is a LangGraph-native substrate for self-improving coding agent har
 
 ### Test Suite
 
-| Test File | Count | Requires |
-|-----------|-------|----------|
-| `test_tools.py` | 20 | — |
-| `test_sandbox.py` | 6 | — |
-| `test_frontier.py` | 7 | — |
-| `test_state.py` | 3 | — |
-| `test_outer.py` | 1 | — |
-| `test_inner.py` | 1 | `ANTHROPIC_API_KEY` |
-| `test_persistence.py` | 4 | Postgres |
-| `test_memory.py` | 6 | Postgres |
-| `test_memory_e2e.py` | 9 | Postgres |
-| `test_branches.py` | 5 | 1 requires Postgres |
-| `test_api.py` | 1 | — |
-| `test_streaming.py` | 3 | — |
-| **Total** | **66** | |
-
-Current pass rate: **50 passed, 21 skipped** (skips = Postgres healthcheck or missing API key).
+Current backend pass rate: **82 passed, 1 skipped** via
+`cd backend && uv run pytest tests -q`. The skipped test is the live
+LLM inner-loop test when `ANTHROPIC_API_KEY` is unavailable. Frontend e2e
+coverage passes with **7 Playwright tests**.
 
 ---
 
@@ -111,10 +98,10 @@ Current pass rate: **50 passed, 21 skipped** (skips = Postgres healthcheck or mi
 
 > **Priority: HIGH** — this is the visual payoff of the entire system.
 
-**Status:** Not started. No `frontend/` directory exists.
+**Status:** Complete. The dashboard lives in `frontend/dashboard/`.
 
-**Required deliverables:**
-- Next.js 15 app at `localhost:3000`
+**Delivered:**
+- Next.js 16 app at `localhost:3000`
 - Run-detail page with 5 live-updating views:
   1. **ReactFlow** outer-state-graph (propose/validate/benchmark/update_frontier nodes light up)
   2. **D3 trajectory tree** showing branch lineage from `reconstruct_trajectory`
@@ -134,18 +121,13 @@ Current pass rate: **50 passed, 21 skipped** (skips = Postgres healthcheck or mi
 
 ### Step 12 — CLI Completeness + Holdout Evaluation
 
-> **Priority: MEDIUM** — the CLI is mostly done; the missing pieces are `fork`, `init`, and holdout tasks.
+> **Priority: MEDIUM** — the CLI is complete enough for the current build
+> order and covered by deterministic smoke tests.
 
-**What's done:**
-- `loop`, `inner`, `benchmark`, `resume`, `memory` subcommands all work
-- `--holdout` flag exists in `inner` and `loop` but no holdout tasks are defined
-
-**What's missing:**
-- [ ] `meta-harness fork <run-name> --checkpoint <id>` CLI subcommand
-- [ ] `meta-harness init` CLI subcommand (scaffold a new domain/skill)
-- [ ] `eval/holdout/task-006-*/` and `eval/holdout/task-007-*/` — held-out tasks the proposer never sees
-- [ ] `backend/tests/test_cli.py` — CLI-specific tests
-- [ ] `holdout-result.json` output format and scoring
+**Status:** Complete. `loop`, `inner`, `benchmark`, `fork`, `init`, `resume`,
+and `memory` subcommands are implemented; `--holdout` support writes
+`holdout-result.json` for real-bench loops; two holdout tasks are present
+under `eval/holdout/`; CLI coverage lives in `backend/tests/test_cli.py`.
 
 ---
 
@@ -169,8 +151,8 @@ Current pass rate: **50 passed, 21 skipped** (skips = Postgres healthcheck or mi
 | Postgres healthcheck changed in s9 (uses `AsyncConnection.connect` directly) | Low | Works but causes some test processes to skip Postgres-dependent tests when the event loop policy differs |
 | Mock module caching across tests | Fixed | `test_api.py` now cleans `sys.path` and `sys.modules`; `outer.py` invalidates caches before importing |
 | SSE `_emit` was not best-effort | Fixed | Wrapped in `try/except` to prevent streaming errors from crashing graph nodes |
-| `eval/holdout/` directory missing | Blocking step 12 | Needs 2+ held-out tasks |
-| `frontend/` directory missing | Blocking step 11 | Full Next.js app needed |
+| `tokens` / `cost_usd` are zero in real-bench results | Medium | Token aggregation from Anthropic responses is not implemented yet |
+| Memory panel still includes demo fixtures | Low | Live memory SSE entries are visible, but historical memory list is partly mocked |
 
 ---
 
@@ -186,11 +168,12 @@ MetaHarness/
 │   │   ├── cli.py       # Typer CLI
 │   │   ├── main.py      # FastAPI app factory
 │   │   └── streaming.py # SSE event registry
-│   └── tests/           # 66 tests across 12 files
+│   └── tests/           # pytest suite
 ├── eval/
 │   ├── tasks/           # 5 search-set tasks
+│   ├── holdout/         # 2 held-out tasks
 │   └── score.py         # pytest-based scoring
-├── frontend/            # (step 11 — not yet created)
+├── frontend/            # Next.js dashboard
 ├── infra/               # docker-compose.yml (Postgres 16)
 ├── sdk/                 # Public SDK package
 ├── skills/              # SKILL.md (proposer system prompt)

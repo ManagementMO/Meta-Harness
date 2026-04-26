@@ -31,7 +31,7 @@ export type StreamHandle = {
 export function subscribeToRun(
   runId: string,
   handlers: Partial<Record<StreamingEventType, (e: StreamingEvent) => void>> &
-    { onOpen?: () => void; onError?: (e: Event) => void },
+  { onOpen?: () => void; onError?: (e: Event) => void },
 ): StreamHandle {
   const url = `${API_BASE_URL}/runs/${encodeURIComponent(runId)}/stream`;
   const source = new EventSource(url);
@@ -62,8 +62,49 @@ export function subscribeToRun(
 // ── Convenience wrappers used by the dashboard page ──
 
 import type { Dispatch } from "react";
+import { demoFixtureState } from "./state";
 import type { DashboardAction } from "./types";
 import type { TreeNode, LogEntry, ForkEvent, RunSummary } from "./types";
+
+type RunEventData = {
+  candidate?: string;
+  checkpoint_id?: string | number;
+  node?: string | number;
+  valid?: boolean;
+  iteration?: string | number;
+  status?: string | number;
+  thread_id?: string | number;
+  key?: string | number;
+  message?: string | number;
+  run?: RunSummary;
+  tree?: TreeNode[];
+  log?: LogEntry;
+};
+
+function eventLogEntry(e: StreamingEvent, text: string, tag: LogEntry["tag"]): LogEntry {
+  const data = e.data as RunEventData;
+  return {
+    id: e.id || `${e.type}-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    tag,
+    text,
+    candidateName: typeof data.candidate === "string" ? data.candidate : "outer-loop",
+    details: JSON.stringify(e.data, null, 2),
+    expandable: true,
+  };
+}
+
+function valueLabel(value: unknown): string | null {
+  return typeof value === "string" || typeof value === "number" ? String(value) : null;
+}
+
+function asTreeNode(data: Record<string, unknown>): TreeNode {
+  return data as TreeNode;
+}
+
+function asForkEvent(data: Record<string, unknown>): ForkEvent {
+  return data as ForkEvent;
+}
 
 export function startSSE(
   runId: string,
@@ -73,44 +114,80 @@ export function startSSE(
     onOpen: () => dispatch({ type: "SET_SSE_CONNECTED", payload: true }),
     onError: () => dispatch({ type: "SET_SSE_CONNECTED", payload: false }),
     "state-update": (e) => {
-      if (e.data.run) dispatch({ type: "SET_RUN", payload: e.data.run as RunSummary });
-    },
-    "candidate-created": (e) => {
-      dispatch({ type: "ADD_TREE_NODE", payload: e.data as unknown as TreeNode });
-    },
-    "eval-result": (e) => {
-      dispatch({ type: "ADD_TREE_NODE", payload: e.data as unknown as TreeNode });
-    },
-    "iteration-complete": (e) => {
-      if (e.data.log) dispatch({ type: "ADD_LOG_ENTRY", payload: e.data.log as LogEntry });
-    },
-    "fork-created": (e) => {
-      dispatch({ type: "ADD_FORK_EVENT", payload: e.data as unknown as ForkEvent });
-    },
-    "frontier-updated": (e) => {
-      if (e.data.tree) dispatch({ type: "SET_TREE", payload: e.data.tree as TreeNode[] });
+      const data = e.data as RunEventData;
+      if (data.run) dispatch({ type: "SET_RUN", payload: data.run });
     },
     "checkpoint-written": (e) => {
-      if (e.data.checkpoint_id) dispatch({ type: "SET_CHECKPOINT", payload: e.data.checkpoint_id as string });
+      const data = e.data as RunEventData;
+      const checkpoint = valueLabel(data.checkpoint_id) ?? "unknown";
+      const node = valueLabel(data.node) ?? "graph";
+      dispatch({
+        type: "ADD_LOG_ENTRY",
+        payload: eventLogEntry(e, `checkpoint ${checkpoint} written at ${node}`, "memory"),
+      });
+    },
+    "candidate-created": (e) => {
+      dispatch({ type: "ADD_TREE_NODE", payload: asTreeNode(e.data) });
     },
     "validate-result": (e) => {
-      if (e.data.log) dispatch({ type: "ADD_LOG_ENTRY", payload: e.data.log as LogEntry });
+      const data = e.data as RunEventData;
+      const candidate = valueLabel(data.candidate) ?? "candidate";
+      const valid = Boolean(data.valid);
+      dispatch({
+        type: "ADD_LOG_ENTRY",
+        payload: eventLogEntry(
+          e,
+          `${candidate} ${valid ? "validated" : "failed validation"}`,
+          valid ? "verify" : "fail",
+        ),
+      });
+    },
+    "eval-result": (e) => {
+      dispatch({ type: "ADD_TREE_NODE", payload: asTreeNode(e.data) });
+    },
+    "iteration-complete": (e) => {
+      const data = e.data as RunEventData;
+      if (data.log) {
+        dispatch({ type: "ADD_LOG_ENTRY", payload: data.log });
+        return;
+      }
+      const iteration = valueLabel(data.iteration) ?? "?";
+      const status = valueLabel(data.status) ?? "complete";
+      dispatch({
+        type: "ADD_LOG_ENTRY",
+        payload: eventLogEntry(e, `iteration ${iteration} ${status}`, "score"),
+      });
+    },
+    "fork-created": (e) => {
+      dispatch({ type: "ADD_FORK_EVENT", payload: asForkEvent(e.data) });
     },
     "branch-cancelled": (e) => {
-      if (e.data.thread_id) dispatch({ type: "CANCEL_BRANCH", payload: e.data.thread_id as string });
+      const data = e.data as RunEventData;
+      const thread = valueLabel(data.thread_id) ?? "branch";
+      dispatch({
+        type: "ADD_LOG_ENTRY",
+        payload: eventLogEntry(e, `${thread} cancelled`, "fork"),
+      });
     },
     "memory-pattern-stored": (e) => {
-      const entry: LogEntry = {
-        id: `mem-${Date.now()}`,
-        timestamp: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-        tag: "memory",
-        text: (e.data.pattern as string) ?? "pattern stored",
-        candidateName: (e.data.candidate as string) ?? "",
-      };
-      dispatch({ type: "ADD_LOG_ENTRY", payload: entry });
+      const data = e.data as RunEventData;
+      const key = valueLabel(data.key) ?? "pattern";
+      dispatch({
+        type: "ADD_LOG_ENTRY",
+        payload: eventLogEntry(e, `stored memory pattern for ${key}`, "memory"),
+      });
+    },
+    "frontier-updated": (e) => {
+      const data = e.data as RunEventData;
+      if (data.tree) dispatch({ type: "SET_TREE", payload: data.tree });
     },
     "error": (e) => {
-      dispatch({ type: "SET_ERROR", payload: (e.data.message as string) ?? "Unknown error" });
+      const data = e.data as RunEventData;
+      const message = valueLabel(data.message) ?? "stream error";
+      dispatch({
+        type: "ADD_LOG_ENTRY",
+        payload: eventLogEntry(e, message, "fail"),
+      });
     },
   });
   return handle.close;
@@ -120,9 +197,27 @@ import { MOCK_EVENTS, type MockSSEEvent } from "./mock/events";
 
 export function startMockSSE(
   dispatch: Dispatch<DashboardAction>,
-  speedMultiplier = 1,
+  seconds: number,
 ): () => void {
-  dispatch({ type: "RESET" });
+  void seconds;
+  if (demoFixtureState.run) {
+    dispatch({ type: "SET_RUN", payload: demoFixtureState.run });
+  }
+  if (demoFixtureState.tree) {
+    dispatch({ type: "SET_TREE", payload: demoFixtureState.tree });
+  }
+  if (demoFixtureState.iterations) {
+    dispatch({ type: "SET_ITERATIONS", payload: demoFixtureState.iterations });
+  }
+  if (demoFixtureState.logEntries) {
+    dispatch({ type: "SET_LOG_ENTRIES", payload: demoFixtureState.logEntries });
+  }
+  for (const fork of demoFixtureState.forkEvents ?? []) {
+    dispatch({ type: "ADD_FORK_EVENT", payload: fork });
+  }
+  if (demoFixtureState.selectedNode) {
+    dispatch({ type: "SELECT_NODE", payload: demoFixtureState.selectedNode });
+  }
   dispatch({ type: "SET_SSE_CONNECTED", payload: true });
 
   const timers: ReturnType<typeof setTimeout>[] = [];
