@@ -4,7 +4,7 @@ import { useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { DashboardProvider, useDashboardDispatch } from '@/lib/state';
 import { startSSE, startMockSSE } from '@/lib/sse';
-import { isBackendAvailable, getRunDetail, toRunInfo, toTreeNodes } from '@/lib/api';
+import { fetchCheckpointCandidateMap, getRunDetail, isBackendAvailable, toRunInfo, toTreeNodesFromRunDetail } from '@/lib/api';
 import { TopBar } from '@/components/TopBar';
 import { TrajectoryTree } from '@/components/TrajectoryTree';
 import { DecisionLog } from '@/components/DecisionLog';
@@ -18,21 +18,34 @@ function DashboardShell() {
 
   const connect = useCallback(async () => {
     const live = await isBackendAvailable();
+    dispatch({ type: 'SET_MODE', payload: live ? 'live' : 'mock' });
 
     if (live) {
       try {
         const detail = await getRunDetail(runId);
-        dispatch({ type: 'SET_RUN', payload: toRunInfo(detail) });
-        for (const node of toTreeNodes(detail.summary_rows ?? [])) {
+        const runInfo = toRunInfo(detail);
+        dispatch({ type: 'SET_RUN', payload: runInfo });
+        if (runInfo.isMock) dispatch({ type: 'SET_MODE', payload: 'mock' });
+        for (const node of toTreeNodesFromRunDetail(detail)) {
           dispatch({ type: 'ADD_TREE_NODE', payload: node });
         }
+        const checkpoints = await fetchCheckpointCandidateMap(runId);
+        for (const [candidate, checkpointId] of checkpoints) {
+          dispatch({ type: 'SET_CHECKPOINT_ID', payload: { candidate, checkpointId } });
+        }
       } catch {
-        // Run may not exist yet — SSE will populate as events arrive
+        dispatch({ type: 'SET_SSE_CONNECTED', payload: false });
+        return undefined;
       }
       return startSSE(runId, dispatch);
     }
 
-    return startMockSSE(dispatch, 3);
+    if (runId === 'demo-2026-04-25') {
+      return startMockSSE(dispatch, 3);
+    }
+
+    dispatch({ type: 'SET_SSE_CONNECTED', payload: false });
+    return undefined;
   }, [runId, dispatch]);
 
   useEffect(() => {

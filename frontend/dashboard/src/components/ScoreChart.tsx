@@ -1,19 +1,22 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useDashboard } from '@/lib/state';
-
-const TASK_BREAKDOWN = [
-  { key: 'task_median_basic', label: 'median_basic', score: 1.0 },
-  { key: 'task_median_even', label: 'median_even', score: 0.8 },
-  { key: 'task_median_single', label: 'median_single', score: 1.0 },
-  { key: 'task_median_negative', label: 'median_negative', score: 0.6 },
-  { key: 'task_median_empty', label: 'median_empty', score: 0.8 },
-];
 
 function barColor(score: number) {
   if (score >= 0.8) return '#6a9e78';
   if (score >= 0.6) return '#b09868';
   return '#b06068';
+}
+
+function scoreDomain(scores: number[]) {
+  if (scores.length === 0) return { min: 0, max: 1 };
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  const paddedMin = Math.max(0, min - 0.05);
+  const paddedMax = Math.min(1, max + 0.05);
+  return paddedMin === paddedMax
+    ? { min: Math.max(0, paddedMin - 0.1), max: Math.min(1, paddedMax + 0.1) }
+    : { min: paddedMin, max: paddedMax };
 }
 
 export function ScoreChart() {
@@ -24,19 +27,37 @@ export function ScoreChart() {
   const forkNodes = tree.filter(n => n.isForkBranch).sort((a, b) => a.iteration - b.iteration);
   const rejectedNodes = tree.filter(n => n.status === 'rejected');
   const bestNode = tree.find(n => n.status === 'best');
+  const plottedNodes = useMemo(
+    () => [...mainNodes, ...forkNodes, ...rejectedNodes],
+    [mainNodes, forkNodes, rejectedNodes],
+  );
+  const taskBreakdown = useMemo(() => {
+    const tasks = bestNode?.scores.per_task ?? plottedNodes.at(-1)?.scores.per_task ?? {};
+    return Object.entries(tasks)
+      .map(([key, info]) => ({
+        key,
+        label: key.replace(/^task-/, '').replace(/_/g, '-'),
+        score: info.pass_rate,
+      }))
+      .sort((a, b) => b.score - a.score || a.key.localeCompare(b.key))
+      .slice(0, 8);
+  }, [bestNode, plottedNodes]);
 
   const width = 500;
   const chartHeight = 300;
-  const barSectionHeight = 130;
+  const barSectionHeight = taskBreakdown.length > 0 ? 38 + taskBreakdown.length * 20 : 76;
   const totalHeight = chartHeight + barSectionHeight;
   const pad = { top: 20, right: 20, bottom: 40, left: 55 };
   const w = width - pad.left - pad.right;
   const h = chartHeight - pad.top - pad.bottom;
 
-  const xMin = 0, xMax = 4;
-  const yMin = 0.58, yMax = 0.90;
-  const x = (v: number) => pad.left + ((v - xMin) / (xMax - xMin)) * w;
-  const y = (v: number) => pad.top + h - ((v - yMin) / (yMax - yMin)) * h;
+  const maxIteration = Math.max(1, ...plottedNodes.map(n => n.iteration));
+  const xMin = 0, xMax = maxIteration;
+  const yDomain = scoreDomain(plottedNodes.map(n => n.scores.accuracy));
+  const x = (v: number) => pad.left + ((v - xMin) / Math.max(1, xMax - xMin)) * w;
+  const y = (v: number) => pad.top + h - ((v - yDomain.min) / Math.max(0.01, yDomain.max - yDomain.min)) * h;
+  const yTicks = Array.from({ length: 5 }, (_, i) => yDomain.min + ((yDomain.max - yDomain.min) * i) / 4);
+  const xTicks = Array.from({ length: maxIteration + 1 }, (_, i) => i);
 
   const toPath = (nodes: typeof mainNodes) =>
     nodes.map((n, i) => `${i === 0 ? 'M' : 'L'} ${x(n.iteration)} ${y(n.scores.accuracy)}`).join(' ');
@@ -75,9 +96,7 @@ export function ScoreChart() {
     }
   }
 
-  // All nodes for hover
-  const allNodes = [...mainNodes, ...forkNodes];
-  const hoveredNode = hovered ? allNodes.find(n => n.candidate === hovered) : null;
+  const hoveredNode = hovered ? plottedNodes.find(n => n.candidate === hovered) : null;
 
   // Bar chart layout
   const barTop = chartHeight + 10;
@@ -97,12 +116,14 @@ export function ScoreChart() {
       {/* ── Main Chart ── */}
 
       {/* Grid */}
-      {[0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90].map(v => (
+      {yTicks.map(v => (
         <line key={v} x1={pad.left} x2={width - pad.right} y1={y(v)} y2={y(v)} stroke="#1c1c26" strokeWidth={1} />
       ))}
 
       {/* Baseline */}
-      <line x1={pad.left} x2={width - pad.right} y1={y(0.62)} y2={y(0.62)} stroke="#303040" strokeWidth={1} strokeDasharray="4 4" />
+      {mainNodes[0] && (
+        <line x1={pad.left} x2={width - pad.right} y1={y(mainNodes[0].scores.accuracy)} y2={y(mainNodes[0].scores.accuracy)} stroke="#303040" strokeWidth={1} strokeDasharray="4 4" />
+      )}
 
       {/* Pareto frontier */}
       {paretoPath && (
@@ -110,7 +131,7 @@ export function ScoreChart() {
       )}
 
       {/* Y axis labels */}
-      {[0.60, 0.70, 0.80, 0.90].map(v => (
+      {yTicks.map(v => (
         <text key={v} x={pad.left - 8} y={y(v) + 3} textAnchor="end" fill="#4e4e5c" fontSize={9} fontFamily="monospace">{v.toFixed(2)}</text>
       ))}
 
@@ -129,7 +150,7 @@ export function ScoreChart() {
       </text>
 
       {/* X axis labels */}
-      {[0, 1, 2, 3, 4].map(v => (
+      {xTicks.map(v => (
         <text key={v} x={x(v)} y={chartHeight - 18} textAnchor="middle" fill="#4e4e5c" fontSize={9} fontFamily="monospace">{v}</text>
       ))}
 
@@ -265,7 +286,19 @@ export function ScoreChart() {
         TASK BREAKDOWN{bestNode ? ` — ${bestNode.candidate}` : ''}
       </text>
 
-      {TASK_BREAKDOWN.map((task, i) => {
+      {taskBreakdown.length === 0 && (
+        <text
+          x={pad.left}
+          y={barTop + 26}
+          fill="#4e4e5c"
+          fontSize={9}
+          fontFamily="monospace"
+        >
+          No per-task scores emitted for this run yet.
+        </text>
+      )}
+
+      {taskBreakdown.map((task, i) => {
         const by = barTop + 18 + i * (barH + barGap);
         const bw = task.score * barMaxW;
         return (

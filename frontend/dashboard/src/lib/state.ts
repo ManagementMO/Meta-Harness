@@ -109,15 +109,8 @@ const initialLogEntries: LogEntry[] = [
   { id: "log-6", timestamp: "14:32:43", tag: "score", text: "accuracy=0.80 (+0.06) NEW BEST", candidateName: "more-specific-descriptions" },
 ];
 
-// Default state: empty. Components render empty / placeholder UI until
-// SSE feeds real data from the backend (see lib/sse.ts → subscribeToRun).
-//
-// We DO export ``demoFixtureState`` below as an opt-in seed for the
-// "Demo Mode" landing page or pure-static screenshots — it must NEVER
-// be the default for an actual run page; previous reviewer found that
-// a real run loaded against the seeded fake tree displayed real and
-// fake candidates intermixed.
 const initialState: DashboardState = {
+  mode: "live",
   run: null,
   tree: [],
   iterations: [],
@@ -159,14 +152,55 @@ export const demoFixtureState: Partial<DashboardState> = {
 
 function reducer(state: DashboardState, action: DashboardAction): DashboardState {
   switch (action.type) {
+    case "SET_MODE":
+      return { ...state, mode: action.payload };
     case "SET_RUN":
       return { ...state, run: action.payload };
     case "SET_TREE":
       return { ...state, tree: action.payload };
     case "ADD_TREE_NODE": {
+      const existing = state.tree.find(n => n.candidate === action.payload.candidate);
+      const merged: TreeNode = existing
+        ? {
+            ...existing,
+            ...action.payload,
+            parent_candidate_name:
+              action.payload.parent_candidate_name ?? existing.parent_candidate_name,
+            iteration: action.payload.iteration || existing.iteration,
+            hypothesis: action.payload.hypothesis ?? existing.hypothesis,
+            axis: action.payload.axis ?? existing.axis,
+            delta: action.payload.delta ?? existing.delta,
+          }
+        : action.payload;
       const without = state.tree.filter(n => n.candidate !== action.payload.candidate);
-      return { ...state, tree: [...without, action.payload] };
+      return { ...state, tree: [...without, merged] };
     }
+    case "SET_CHECKPOINT_ID":
+      return {
+        ...state,
+        tree: state.tree.map(node => (
+          node.candidate === action.payload.candidate
+            ? { ...node, checkpointId: action.payload.checkpointId }
+            : node
+        )),
+      };
+    case "APPLY_FRONTIER_UPDATE":
+      return {
+        ...state,
+        tree: state.tree.map(node => ({
+          ...node,
+          status:
+            action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
+              ? "best"
+              : action.payload.frontier.includes(node.candidate) && node.status !== "best"
+                ? "accepted"
+                : node.status,
+          delta:
+            action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
+              ? action.payload.delta
+              : node.delta,
+        })),
+      };
     case "SET_ITERATIONS":
       return { ...state, iterations: action.payload };
     case "ADD_LOG_ENTRY":

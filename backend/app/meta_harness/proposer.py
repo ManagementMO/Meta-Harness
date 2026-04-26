@@ -226,11 +226,7 @@ def claude_propose(
         plugin_dir=empty_plugin_dir,
     )
 
-    # Strip ANTHROPIC_API_KEY so claude CLI uses subscription auth
-    # (mirrors Stanford's pattern; avoids API rate limits for the
-    # proposer specifically).
     env = os.environ.copy()
-    saved_key = env.pop("ANTHROPIC_API_KEY", None)
     env.pop("CLAUDECODE", None)
 
     # Persist the exact prompt + system prompt for debugging.
@@ -311,9 +307,6 @@ def claude_propose(
     except FileNotFoundError as exc:
         stderr_lines.append(str(exc))
         exit_code = 127
-    finally:
-        if saved_key is not None:
-            os.environ["ANTHROPIC_API_KEY"] = saved_key
 
     duration = time.monotonic() - started
 
@@ -353,8 +346,10 @@ def claude_propose(
     )
 
     if exit_code != 0:
+        reason = " ".join(text_parts).strip() or "".join(stderr_lines).strip()
+        reason_suffix = f": {reason[:300]}" if reason else ""
         raise RuntimeError(
-            f"proposer subprocess failed (exit_code={exit_code}); "
+            f"proposer subprocess failed (exit_code={exit_code}){reason_suffix}; "
             f"see {sess_dir}/session.json"
         )
 

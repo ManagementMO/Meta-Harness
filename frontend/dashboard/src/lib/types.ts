@@ -37,6 +37,7 @@ export type TreeNode = {
   candidate: string;
   parent_candidate_name: string | null;
   iteration: number;
+  checkpointId?: string;
   status: CandidateStatus;
   scores: Scores;
   hypothesis?: string;
@@ -85,6 +86,16 @@ export type RunSummary = {
   bestScore: number | null;
   status: string;
   iteration: number;
+  isMock?: boolean;
+};
+
+export type MemoryEntry = {
+  key: string;
+  pattern: string;
+  mechanism_axis?: string;
+  score_delta?: number;
+  evidence_run_ids?: string[];
+  created_at?: string;
 };
 
 export type DashboardFilters = {
@@ -93,6 +104,7 @@ export type DashboardFilters = {
 };
 
 export type DashboardState = {
+  mode: "live" | "mock";
   run: RunSummary | null;
   tree: TreeNode[];
   iterations: IterationChapter[];
@@ -118,9 +130,19 @@ export type EvolutionRow = {
 };
 
 export type DashboardAction =
+  | { type: "SET_MODE"; payload: DashboardState["mode"] }
   | { type: "SET_RUN"; payload: RunSummary | null }
   | { type: "SET_TREE"; payload: TreeNode[] }
   | { type: "ADD_TREE_NODE"; payload: TreeNode }
+  | { type: "SET_CHECKPOINT_ID"; payload: { candidate: string; checkpointId: string } }
+  | {
+      type: "APPLY_FRONTIER_UPDATE";
+      payload: {
+        frontier: string[];
+        bestCandidate: string | null;
+        delta: number | null;
+      };
+    }
   | { type: "SET_ITERATIONS"; payload: IterationChapter[] }
   | { type: "ADD_LOG_ENTRY"; payload: LogEntry }
   | { type: "SET_LOG_ENTRIES"; payload: LogEntry[] }

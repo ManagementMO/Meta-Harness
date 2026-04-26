@@ -79,6 +79,15 @@ type RunEventData = {
   run?: RunSummary;
   tree?: TreeNode[];
   log?: LogEntry;
+  import_path?: string;
+  parent?: string | null;
+  accuracy?: number;
+  per_task?: TreeNode["scores"]["per_task"];
+  frontier?: string[];
+  best_candidate?: string | null;
+  delta?: number | null;
+  parent_thread_id?: string;
+  parent_checkpoint_id?: string;
 };
 
 function eventLogEntry(e: StreamingEvent, text: string, tag: LogEntry["tag"]): LogEntry {
@@ -98,12 +107,44 @@ function valueLabel(value: unknown): string | null {
   return typeof value === "string" || typeof value === "number" ? String(value) : null;
 }
 
-function asTreeNode(data: Record<string, unknown>): TreeNode {
-  return data as TreeNode;
+function candidateNodeFromEvent(data: RunEventData): TreeNode | null {
+  if (typeof data.candidate !== "string") return null;
+  const iterationValue = typeof data.iteration === "number" ? data.iteration : 0;
+  return {
+    candidate: data.candidate,
+    parent_candidate_name: data.parent ?? null,
+    iteration: iterationValue,
+    checkpointId: valueLabel(data.checkpoint_id) ?? undefined,
+    status: "seed",
+    scores: { accuracy: 0 },
+    delta: null,
+  };
 }
 
-function asForkEvent(data: Record<string, unknown>): ForkEvent {
-  return data as ForkEvent;
+function evalNodeFromEvent(data: RunEventData): TreeNode | null {
+  if (typeof data.candidate !== "string") return null;
+  const accuracy = typeof data.accuracy === "number" ? data.accuracy : 0;
+  return {
+    candidate: data.candidate,
+    parent_candidate_name: data.parent ?? null,
+    iteration: typeof data.iteration === "number" ? data.iteration : 0,
+    checkpointId: valueLabel(data.checkpoint_id) ?? undefined,
+    status: "accepted",
+    scores: { accuracy, per_task: data.per_task },
+    delta: null,
+  };
+}
+
+function forkEventFromEvent(data: RunEventData): ForkEvent {
+  const threadId = valueLabel(data.thread_id) ?? "branch";
+  return {
+    timestamp: new Date().toISOString(),
+    parentCandidate: valueLabel(data.parent_thread_id) ?? "run",
+    checkpointId: valueLabel(data.parent_checkpoint_id) ?? "checkpoint",
+    prior: "backend fork",
+    branchId: threadId,
+    rationale: "Fork created from checkpoint",
+  };
 }
 
 export function startSSE(
@@ -127,7 +168,8 @@ export function startSSE(
       });
     },
     "candidate-created": (e) => {
-      dispatch({ type: "ADD_TREE_NODE", payload: asTreeNode(e.data) });
+      const node = candidateNodeFromEvent(e.data as RunEventData);
+      if (node) dispatch({ type: "ADD_TREE_NODE", payload: node });
     },
     "validate-result": (e) => {
       const data = e.data as RunEventData;
@@ -143,7 +185,8 @@ export function startSSE(
       });
     },
     "eval-result": (e) => {
-      dispatch({ type: "ADD_TREE_NODE", payload: asTreeNode(e.data) });
+      const node = evalNodeFromEvent(e.data as RunEventData);
+      if (node) dispatch({ type: "ADD_TREE_NODE", payload: node });
     },
     "iteration-complete": (e) => {
       const data = e.data as RunEventData;
@@ -159,7 +202,7 @@ export function startSSE(
       });
     },
     "fork-created": (e) => {
-      dispatch({ type: "ADD_FORK_EVENT", payload: asForkEvent(e.data) });
+      dispatch({ type: "ADD_FORK_EVENT", payload: forkEventFromEvent(e.data as RunEventData) });
     },
     "branch-cancelled": (e) => {
       const data = e.data as RunEventData;
@@ -180,6 +223,16 @@ export function startSSE(
     "frontier-updated": (e) => {
       const data = e.data as RunEventData;
       if (data.tree) dispatch({ type: "SET_TREE", payload: data.tree });
+      if (data.frontier || data.best_candidate) {
+        dispatch({
+          type: "APPLY_FRONTIER_UPDATE",
+          payload: {
+            frontier: data.frontier ?? [],
+            bestCandidate: data.best_candidate ?? null,
+            delta: data.delta ?? null,
+          },
+        });
+      }
     },
     "error": (e) => {
       const data = e.data as RunEventData;
@@ -198,6 +251,7 @@ export function startMockSSE(
   seconds: number,
 ): () => void {
   void seconds;
+  dispatch({ type: "SET_MODE", payload: "mock" });
   if (demoFixtureState.run) {
     dispatch({ type: "SET_RUN", payload: demoFixtureState.run });
   }
