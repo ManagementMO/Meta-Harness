@@ -2,12 +2,6 @@
 import { useMemo, useState } from 'react';
 import { useDashboard } from '@/lib/state';
 
-function barColor(score: number) {
-  if (score >= 0.8) return '#6a9e78';
-  if (score >= 0.6) return '#b09868';
-  return '#b06068';
-}
-
 const TASK_ESSENCE: Record<string, string> = {
   'fix-typo': 'Applies minimal, targeted edits without collateral changes.',
   'add-function': 'Implements new behavior while preserving existing interfaces.',
@@ -64,8 +58,7 @@ export function ScoreChart() {
 
   const width = 500;
   const chartHeight = 300;
-  const barSectionHeight = tasks.length > 0 ? 38 + tasks.length * 20 : 76;
-  const totalHeight = chartHeight + barSectionHeight;
+  const totalHeight = chartHeight;
   const pad = { top: 20, right: 20, bottom: 40, left: 55 };
   const w = width - pad.left - pad.right;
   const h = chartHeight - pad.top - pad.bottom;
@@ -119,13 +112,6 @@ export function ScoreChart() {
   const rejectedCount = tree.filter(n => n.status === 'rejected').length;
   const forkCount = tree.filter(n => n.isForkBranch).length;
   const latestDelta = latestNode?.delta ?? null;
-
-  const barTop = chartHeight + 10;
-  const barLeft = pad.left + 80;
-  const barRight = width - pad.right;
-  const barMaxW = barRight - barLeft;
-  const barH = 14;
-  const barGap = 6;
 
   if (tree.length === 0) {
     return (
@@ -344,62 +330,6 @@ export function ScoreChart() {
       <line x1={width - 55} x2={width - 40} y1={12} y2={12} stroke="#7ab8ad" strokeWidth={1.5} strokeDasharray="4 3" opacity={0.5} />
       <text x={width - 36} y={15} fill="#707084" fontSize={8} fontFamily="monospace">PARETO</text>
 
-      <text
-        x={pad.left}
-        y={barTop + 4}
-        fill="#707084"
-        fontSize={8}
-        fontFamily="monospace"
-        letterSpacing="0.06em"
-      >
-        PER-TASK PASS RATE — {focusNode?.candidate ?? ''}
-      </text>
-
-      {tasks.length === 0 && (
-        <text
-          x={pad.left}
-          y={barTop + 26}
-          fill="#4e4e5c"
-          fontSize={9}
-          fontFamily="monospace"
-        >
-          No per-task scores emitted for this run yet.
-        </text>
-      )}
-
-      {tasks.map((task, i) => {
-        const by = barTop + 18 + i * (barH + barGap);
-        const bw = task.score * barMaxW;
-        return (
-          <g key={task.key}>
-            {/* Label */}
-            <text
-              x={barLeft - 6}
-              y={by + barH / 2 + 3}
-              textAnchor="end"
-              fill="#707084"
-              fontSize={8}
-              fontFamily="monospace"
-            >
-              {task.label}
-            </text>
-            {/* Background bar */}
-            <rect x={barLeft} y={by} width={barMaxW} height={barH} rx={2} fill="#1c1c26" />
-            {/* Value bar */}
-            <rect x={barLeft} y={by} width={bw} height={barH} rx={2} fill={barColor(task.score)} />
-            {/* Score label */}
-            <text
-              x={barLeft + bw + 6}
-              y={by + barH / 2 + 3}
-              fill="#4e4e5c"
-              fontSize={8}
-              fontFamily="monospace"
-            >
-              {task.score.toFixed(1)}
-            </text>
-          </g>
-        );
-      })}
         </svg>
       </div>
     </div>
