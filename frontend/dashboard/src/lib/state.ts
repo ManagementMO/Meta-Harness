@@ -228,25 +228,30 @@ function reducer(state: DashboardState, action: DashboardAction): DashboardState
             : node
         )),
       };
-    case "APPLY_FRONTIER_UPDATE":
+    case "APPLY_FRONTIER_UPDATE": {
+      const frontier = new Set(action.payload.frontier);
+      const bestCandidate = action.payload.bestCandidate;
       return {
         ...state,
-        tree: state.tree.map(node => ({
-          ...node,
-          status:
-            action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
-              ? "best"
-              : action.payload.bestCandidate && node.status === "best"
-                ? (action.payload.frontier.includes(node.candidate) ? "accepted" : "rejected")
-                : action.payload.frontier.includes(node.candidate)
-                  ? "accepted"
-                  : node.status,
-          delta:
-            action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
-              ? action.payload.delta
-              : node.delta,
-        })),
+        tree: state.tree.map(node => {
+          const inFrontier = frontier.has(node.candidate);
+          const isNewBest = bestCandidate !== null && node.candidate === bestCandidate;
+          const isOldBest = node.status === "best";
+          const status = isNewBest
+            ? "best"
+            : bestCandidate !== null && isOldBest
+              ? (inFrontier ? "accepted" : "rejected")
+              : inFrontier && !isOldBest
+                ? "accepted"
+                : node.status;
+          return {
+            ...node,
+            status,
+            delta: isNewBest ? action.payload.delta : node.delta,
+          };
+        }),
       };
+    }
     case "SET_ITERATIONS":
       return { ...state, iterations: action.payload };
     case "ADD_LOG_ENTRY":
