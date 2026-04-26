@@ -71,12 +71,20 @@ async def persistence_layer(
 
 
 async def healthcheck(dsn: str | None = None) -> bool:
-    """Return ``True`` iff Postgres is reachable at the configured DSN."""
+    """Return ``True`` iff Postgres is reachable at the configured DSN.
+
+    NOTE: ``psycopg.AsyncConnection.connect`` rejects an unknown
+    ``timeout`` keyword. The libpq parameter is ``connect_timeout``,
+    which we wire through the conninfo string so it works on both
+    ``postgresql://...`` and key-value DSNs without a kwarg-mismatch
+    breaking the entire test suite (which is what happened during the
+    step-8/step-9 merge — every Postgres-backed test silently skipped).
+    """
     try:
         dsn = dsn or get_dsn()
+        sep = "&" if "?" in dsn else "?"
         conn = await AsyncConnection.connect(
-            conninfo=dsn,
-            timeout=5,
+            conninfo=f"{dsn}{sep}connect_timeout=5",
             row_factory=dict_row,
             autocommit=True,
         )
