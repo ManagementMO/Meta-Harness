@@ -1,31 +1,69 @@
-import { DashboardProvider } from "@/lib/state";
-import { TopBar } from "@/components/TopBar";
-import { StatusBar } from "@/components/StatusBar";
-import { TrajectoryTree } from "@/components/TrajectoryTree";
-import { DecisionLog } from "@/components/DecisionLog";
-import { ContextPanel } from "@/components/ContextPanel";
+'use client';
 
-type Params = Promise<{ run_id: string }>;
+import { useEffect, useCallback } from 'react';
+import { useParams } from 'next/navigation';
+import { DashboardProvider, useDashboard, useDashboardDispatch } from '@/lib/state';
+import { startSSE, startMockSSE } from '@/lib/sse';
+import { isBackendAvailable, getRunDetail, toRunInfo, toTreeNodes } from '@/lib/api';
+import { TopBar } from '@/components/TopBar';
+import { TrajectoryTree } from '@/components/TrajectoryTree';
+import { DecisionLog } from '@/components/DecisionLog';
+import { ContextPanel } from '@/components/ContextPanel';
+import { StatusBar } from '@/components/StatusBar';
 
-export default async function RunPage({ params }: { params: Params }) {
-  const { run_id } = await params;
+function DashboardShell() {
+  const params = useParams<{ run_id: string }>();
+  const runId = params.run_id;
+  const dispatch = useDashboardDispatch();
+
+  const connect = useCallback(async () => {
+    const live = await isBackendAvailable();
+
+    if (live) {
+      try {
+        const detail = await getRunDetail(runId);
+        dispatch({ type: 'SET_RUN', payload: toRunInfo(detail) });
+        for (const node of toTreeNodes(detail.summary_rows ?? [])) {
+          dispatch({ type: 'ADD_TREE_NODE', payload: node });
+        }
+      } catch {
+        // Run may not exist yet — SSE will populate as events arrive
+      }
+      return startSSE(runId, dispatch);
+    }
+
+    return startMockSSE(dispatch, 3);
+  }, [runId, dispatch]);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    connect().then(fn => { cleanup = fn; });
+    return () => cleanup?.();
+  }, [connect]);
+
   return (
-    <DashboardProvider initial={{ run: { runId: run_id, threadId: run_id, branches: 2, checkpointId: "ckpt_4af9e21c", bestScore: 0.85, status: "running", iteration: 4 } }}>
-      <div className="flex flex-col h-screen bg-bg text-text-hi">
-        <TopBar />
-        <main className="flex-1 grid grid-cols-[420px_minmax(0,1fr)] grid-rows-[1fr_minmax(0,1fr)] gap-3 p-3 min-h-0">
-          <section className="row-span-2 bg-panel rounded overflow-hidden flex flex-col min-h-0">
-            <TrajectoryTree />
-          </section>
-          <section className="bg-panel rounded overflow-hidden flex flex-col min-h-0">
-            <DecisionLog />
-          </section>
-          <section className="bg-panel rounded overflow-hidden flex flex-col min-h-0">
-            <ContextPanel />
-          </section>
-        </main>
-        <StatusBar />
+    <div className="h-full flex flex-col bg-panel overflow-hidden">
+      <TopBar />
+      <div className="flex-1 flex gap-4 p-4 min-h-0 w-full">
+        <div className="w-[220px] shrink-0 flex flex-col min-h-0 min-w-0">
+          <TrajectoryTree />
+        </div>
+        <div className="flex-[4] flex flex-col min-h-0 min-w-0">
+          <DecisionLog />
+        </div>
+        <div className="flex-[3] flex flex-col min-h-0 min-w-0">
+          <ContextPanel />
+        </div>
       </div>
+      <StatusBar />
+    </div>
+  );
+}
+
+export default function RunPage() {
+  return (
+    <DashboardProvider>
+      <DashboardShell />
     </DashboardProvider>
   );
 }

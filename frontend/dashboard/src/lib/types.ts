@@ -55,6 +55,7 @@ export type LogEntry = {
   details?: string;
   expandable?: boolean;
   expandedContent?: string;
+  threadId?: string;
 };
 
 export type ForkEvent = {
@@ -73,6 +74,7 @@ export type IterationChapter = {
   phases: OuterPhaseFlags;
   isForkBranch?: boolean;
   hypothesis?: string;
+  threadId?: string;
 };
 
 export type RunSummary = {
@@ -101,6 +103,18 @@ export type DashboardState = {
   selectedNode: string | null;
   selectedLogLine: string | null;
   sseConnected: boolean;
+};
+
+export type RunInfo = RunSummary;
+
+export type EvolutionRow = {
+  iteration: number;
+  candidate: string;
+  parent_candidate_name: string | null;
+  scores: Scores;
+  delta: number | null;
+  outcome: string;
+  thread_id?: string;
 };
 
 export type DashboardAction =

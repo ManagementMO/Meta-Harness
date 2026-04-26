@@ -58,3 +58,46 @@ export function subscribeToRun(
   }
   return { close: () => source.close() };
 }
+
+// ── Convenience wrappers used by the dashboard page ──
+
+import type { Dispatch } from "react";
+import type { DashboardAction } from "./types";
+import type { TreeNode, LogEntry, ForkEvent, RunSummary } from "./types";
+
+export function startSSE(
+  runId: string,
+  dispatch: Dispatch<DashboardAction>,
+): () => void {
+  const handle = subscribeToRun(runId, {
+    onOpen: () => dispatch({ type: "SET_SSE_CONNECTED", payload: true }),
+    onError: () => dispatch({ type: "SET_SSE_CONNECTED", payload: false }),
+    "state-update": (e) => {
+      if (e.data.run) dispatch({ type: "SET_RUN", payload: e.data.run as RunSummary });
+    },
+    "candidate-created": (e) => {
+      dispatch({ type: "ADD_TREE_NODE", payload: e.data as unknown as TreeNode });
+    },
+    "eval-result": (e) => {
+      dispatch({ type: "ADD_TREE_NODE", payload: e.data as unknown as TreeNode });
+    },
+    "iteration-complete": (e) => {
+      if (e.data.log) dispatch({ type: "ADD_LOG_ENTRY", payload: e.data.log as LogEntry });
+    },
+    "fork-created": (e) => {
+      dispatch({ type: "ADD_FORK_EVENT", payload: e.data as unknown as ForkEvent });
+    },
+    "frontier-updated": (e) => {
+      if (e.data.tree) dispatch({ type: "SET_TREE", payload: e.data.tree as TreeNode[] });
+    },
+  });
+  return handle.close;
+}
+
+export function startMockSSE(
+  dispatch: Dispatch<DashboardAction>,
+  _seconds: number,
+): () => void {
+  dispatch({ type: "SET_SSE_CONNECTED", payload: true });
+  return () => {};
+}

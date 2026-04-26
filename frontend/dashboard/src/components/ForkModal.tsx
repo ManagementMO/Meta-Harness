@@ -11,7 +11,7 @@ type ForkModalProps = {
 };
 
 export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalProps) {
-  const params = useParams<{ runId: string }>();
+  const params = useParams<{ run_id: string }>();
   const dispatch = useDashboardDispatch();
   const [prior, setPrior] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -25,7 +25,7 @@ export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalPro
 
     let branchId = fallbackBranchId;
     try {
-      const result = await forkRun(params.runId, {
+      const result = await forkRun(params.run_id, {
         parent_checkpoint_id: checkpointId,
         mods: { proposer_prior: prior.trim() },
         name: fallbackBranchId,
