@@ -22,7 +22,13 @@ const initialTree: TreeNode[] = [
     parent_candidate_name: null,
     iteration: 0,
     status: "seed",
-    scores: { accuracy: 0.62 },
+    scores: { accuracy: 0.62, per_task: {
+      "fix-typo": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "add-function": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+      "refactor": { pass_rate: 0.4, trials: [true, true, false, false, false] },
+      "handle-error": { pass_rate: 0.6, trials: [true, false, true, true, false] },
+      "implement-spec": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+    }},
     hypothesis: "starting harness",
     axis: "exploration",
     delta: 0,
@@ -32,7 +38,13 @@ const initialTree: TreeNode[] = [
     parent_candidate_name: "baseline",
     iteration: 1,
     status: "accepted",
-    scores: { accuracy: 0.7 },
+    scores: { accuracy: 0.7, per_task: {
+      "fix-typo": { pass_rate: 1.0, trials: [true, true, true, true, true] },
+      "add-function": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+      "refactor": { pass_rate: 0.4, trials: [true, true, false, false, false] },
+      "handle-error": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "implement-spec": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+    }},
     hypothesis: "retry on schema_drift errors",
     axis: "exploitation",
     delta: 0.08,
@@ -42,7 +54,13 @@ const initialTree: TreeNode[] = [
     parent_candidate_name: "retry-on-schema-drift",
     iteration: 2,
     status: "rejected",
-    scores: { accuracy: 0.66 },
+    scores: { accuracy: 0.66, per_task: {
+      "fix-typo": { pass_rate: 1.0, trials: [true, true, true, true, true] },
+      "add-function": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+      "refactor": { pass_rate: 0.2, trials: [true, false, false, false, false] },
+      "handle-error": { pass_rate: 0.6, trials: [true, false, true, true, false] },
+      "implement-spec": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+    }},
     hypothesis: "stricter tool-description hashing",
     axis: "exploration",
     delta: -0.04,
@@ -52,7 +70,13 @@ const initialTree: TreeNode[] = [
     parent_candidate_name: "retry-on-schema-drift",
     iteration: 3,
     status: "accepted",
-    scores: { accuracy: 0.74 },
+    scores: { accuracy: 0.74, per_task: {
+      "fix-typo": { pass_rate: 1.0, trials: [true, true, true, true, true] },
+      "add-function": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+      "refactor": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+      "handle-error": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "implement-spec": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+    }},
     hypothesis: "early-exit on auth failures",
     axis: "exploitation",
     delta: 0.04,
@@ -62,7 +86,13 @@ const initialTree: TreeNode[] = [
     parent_candidate_name: "early-exit-on-auth",
     iteration: 4,
     status: "best",
-    scores: { accuracy: 0.8 },
+    scores: { accuracy: 0.8, per_task: {
+      "fix-typo": { pass_rate: 1.0, trials: [true, true, true, true, true] },
+      "add-function": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "refactor": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+      "handle-error": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "implement-spec": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+    }},
     hypothesis: "more specific tool descriptions",
     axis: "exploitation",
     delta: 0.06,
@@ -72,7 +102,13 @@ const initialTree: TreeNode[] = [
     parent_candidate_name: "retry-on-schema-drift",
     iteration: 2,
     status: "accepted",
-    scores: { accuracy: 0.78 },
+    scores: { accuracy: 0.78, per_task: {
+      "fix-typo": { pass_rate: 1.0, trials: [true, true, true, true, true] },
+      "add-function": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "refactor": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+      "handle-error": { pass_rate: 0.8, trials: [true, true, false, true, true] },
+      "implement-spec": { pass_rate: 0.6, trials: [true, true, true, false, false] },
+    }},
     hypothesis: "rewrite tool descriptions w/ examples",
     axis: "exploration",
     delta: 0.16,
@@ -84,7 +120,13 @@ const initialTree: TreeNode[] = [
     parent_candidate_name: "rewrite-tool-descriptions-with-examples",
     iteration: 3,
     status: "best",
-    scores: { accuracy: 0.85 },
+    scores: { accuracy: 0.85, per_task: {
+      "fix-typo": { pass_rate: 1.0, trials: [true, true, true, true, true] },
+      "add-function": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "refactor": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "handle-error": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+      "implement-spec": { pass_rate: 0.8, trials: [true, true, true, true, false] },
+    }},
     hypothesis: "add few-shot demos to descriptions",
     axis: "exploitation",
     delta: 0.07,
@@ -121,6 +163,8 @@ const initialState: DashboardState = {
   selectedNode: null,
   selectedLogLine: null,
   sseConnected: false,
+  latestCheckpointId: null,
+  lastError: null,
 };
 
 export const demoFixtureState: Partial<DashboardState> = {
@@ -219,6 +263,27 @@ function reducer(state: DashboardState, action: DashboardAction): DashboardState
       return { ...state, selectedLogLine: action.payload };
     case "SET_SSE_CONNECTED":
       return { ...state, sseConnected: action.payload };
+    case "ADD_ITERATION": {
+      const without = state.iterations.filter(
+        i => !(i.candidateName === action.payload.candidateName && i.iteration === action.payload.iteration),
+      );
+      return { ...state, iterations: [...without, action.payload] };
+    }
+    case "SET_CHECKPOINT":
+      return { ...state, latestCheckpointId: action.payload };
+    case "SET_ERROR":
+      return { ...state, lastError: action.payload };
+    case "CANCEL_BRANCH": {
+      const threadId = action.payload;
+      return {
+        ...state,
+        tree: state.tree.map(n =>
+          n.threadId === threadId ? { ...n, status: "rejected" as const } : n,
+        ),
+      };
+    }
+    case "RESET":
+      return { ...initialState };
     default:
       return state;
   }

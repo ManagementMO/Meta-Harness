@@ -31,7 +31,7 @@ export type StreamHandle = {
 export function subscribeToRun(
   runId: string,
   handlers: Partial<Record<StreamingEventType, (e: StreamingEvent) => void>> &
-    { onOpen?: () => void; onError?: (e: Event) => void },
+  { onOpen?: () => void; onError?: (e: Event) => void },
 ): StreamHandle {
   const url = `${API_BASE_URL}/runs/${encodeURIComponent(runId)}/stream`;
   const source = new EventSource(url);
@@ -246,6 +246,8 @@ export function startSSE(
   return handle.close;
 }
 
+import { MOCK_EVENTS, type MockSSEEvent } from "./mock/events";
+
 export function startMockSSE(
   dispatch: Dispatch<DashboardAction>,
   seconds: number,
@@ -271,5 +273,122 @@ export function startMockSSE(
     dispatch({ type: "SELECT_NODE", payload: demoFixtureState.selectedNode });
   }
   dispatch({ type: "SET_SSE_CONNECTED", payload: true });
-  return () => {};
+
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const speed = 1 / speedMultiplier;
+  const treeState = new Map<string, TreeNode>();
+
+  const PARENT_MAP: Record<string, string> = {
+    "retry-on-schema-drift": "baseline",
+    "stricter-tool-hashing": "retry-on-schema-drift",
+    "early-exit-on-auth": "retry-on-schema-drift",
+    "more-specific-descriptions": "early-exit-on-auth",
+    "rewrite-tool-descriptions": "retry-on-schema-drift",
+    "few-shot-demos": "rewrite-tool-descriptions",
+  };
+
+  const ITERATION_MAP: Record<string, number> = {
+    "retry-on-schema-drift": 1,
+    "stricter-tool-hashing": 2,
+    "early-exit-on-auth": 3,
+    "more-specific-descriptions": 4,
+    "rewrite-tool-descriptions": 2,
+    "few-shot-demos": 3,
+  };
+
+  const FORK_CANDIDATES = new Set(["rewrite-tool-descriptions", "few-shot-demos"]);
+
+  const handleEvent = (evt: MockSSEEvent) => {
+    switch (evt.type) {
+      case "init": {
+        const seed: TreeNode = {
+          candidate: "baseline",
+          parent_candidate_name: null,
+          iteration: 0,
+          status: "seed",
+          scores: { accuracy: 0.62 },
+          hypothesis: "starting harness",
+          axis: "exploration",
+          delta: 0,
+        };
+        treeState.set(seed.candidate, seed);
+        dispatch({ type: "ADD_TREE_NODE", payload: seed });
+        dispatch({ type: "SET_RUN", payload: evt.run });
+        break;
+      }
+
+      case "chapter":
+        dispatch({ type: "ADD_ITERATION", payload: evt.chapter });
+        break;
+
+      case "log":
+        dispatch({ type: "ADD_LOG_ENTRY", payload: evt.entry });
+        dispatch({ type: "SELECT_NODE", payload: evt.entry.candidateName });
+        break;
+
+      case "fork":
+        dispatch({ type: "ADD_FORK_EVENT", payload: evt.fork });
+        break;
+
+      case "score-update": {
+        const isFork = FORK_CANDIDATES.has(evt.candidate);
+        const node: TreeNode = {
+          candidate: evt.candidate,
+          parent_candidate_name: PARENT_MAP[evt.candidate] ?? null,
+          iteration: ITERATION_MAP[evt.candidate] ?? 0,
+          status: evt.accepted ? "accepted" : "rejected",
+          scores: { accuracy: evt.score },
+          delta: evt.delta,
+          isForkBranch: isFork,
+          threadId: isFork ? "demo.fork.c7a1e3f0" : undefined,
+        };
+        treeState.set(node.candidate, node);
+        dispatch({ type: "ADD_TREE_NODE", payload: node });
+        dispatch({
+          type: "SET_RUN",
+          payload: {
+            runId: "demo-2026-04-25",
+            threadId: "demo-2026-04-25",
+            branches: treeState.size > 4 ? 2 : 1,
+            checkpointId: `ckpt_${evt.candidate.slice(0, 8)}`,
+            bestScore: Math.max(...Array.from(treeState.values()).map(n => n.scores.accuracy)),
+            status: "running",
+            iteration: ITERATION_MAP[evt.candidate] ?? 0,
+          },
+        });
+        break;
+      }
+
+      case "best-update": {
+        const existing = treeState.get(evt.candidate);
+        if (existing) {
+          const updated = { ...existing, status: "best" as const };
+          treeState.set(evt.candidate, updated);
+          dispatch({ type: "ADD_TREE_NODE", payload: updated });
+        }
+        dispatch({
+          type: "SET_RUN",
+          payload: {
+            runId: "demo-2026-04-25",
+            threadId: "demo-2026-04-25",
+            branches: 2,
+            checkpointId: "ckpt_best",
+            bestScore: evt.score,
+            status: "running",
+            iteration: treeState.size - 1,
+          },
+        });
+        break;
+      }
+    }
+  };
+
+  for (const evt of MOCK_EVENTS) {
+    timers.push(setTimeout(() => handleEvent(evt), evt.delay * speed));
+  }
+
+  return () => {
+    for (const t of timers) clearTimeout(t);
+    dispatch({ type: "SET_SSE_CONNECTED", payload: false });
+  };
 }

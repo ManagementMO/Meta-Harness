@@ -13,7 +13,8 @@ export function StatusBar() {
         {run?.isMock ? 'Mock run data' : mode === 'mock' ? 'Mock mode' : 'Live data'}
       </span>
       <span>{run?.branches ?? 0} branches</span>
-      <span>ckpt: {run?.checkpointId ?? '—'}</span>
+      <span>ckpt: {ckpt ? `${ckpt.slice(0, 8)}…${ckpt.slice(-4)}` : '—'}</span>
+      {lastError && <span className="text-red">err: {lastError}</span>}
       <span className="ml-auto">v0.1.0</span>
     </div>
   );

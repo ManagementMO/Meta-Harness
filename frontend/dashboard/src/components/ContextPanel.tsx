@@ -4,7 +4,6 @@ import { ScoreChart } from './ScoreChart';
 import { DiffViewer } from './DiffViewer';
 import { TestOutput } from './TestOutput';
 import { MemoryPanel } from './MemoryPanel';
-import { StateGraph } from './StateGraph';
 import { getDiff, getTestOutput } from '@/lib/api';
 
 export function ContextPanel() {
@@ -23,11 +22,10 @@ export function ContextPanel() {
           <button
             key={tab}
             onClick={() => dispatch({ type: 'SET_CONTEXT_TAB', payload: tab })}
-            className={`px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide rounded transition-colors ${
-              contextTab === tab
+            className={`px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide rounded transition-colors ${contextTab === tab
                 ? 'text-cyan border-b-2 border-cyan'
                 : 'text-text-mid hover:text-text-hi'
-            }`}
+              }`}
           >
             {tab}
           </button>
@@ -44,9 +42,8 @@ export function ContextPanel() {
               <span className="text-green">+18</span>
               <span className="text-red">-3</span>
             </div>
-            <DiffViewer diff={diff} />
-          </div>
-        )}
+          );
+        })()}
         {contextTab === 'diff' && !diff && (
           <div className="text-text-mid text-xs">
             {selected ? `No diff available for ${selected}` : 'No candidate selected yet.'}
@@ -61,8 +58,6 @@ export function ContextPanel() {
         )}
 
         {contextTab === 'memory' && <MemoryPanel />}
-
-        {contextTab === 'graph' && <div className="flex-1 h-full"><StateGraph /></div>}
       </div>
     </div>
   );

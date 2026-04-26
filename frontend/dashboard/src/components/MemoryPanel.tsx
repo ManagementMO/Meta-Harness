@@ -4,6 +4,12 @@ import { listMemory } from '@/lib/api';
 import { useDashboard } from '@/lib/state';
 import type { MemoryEntry } from '@/lib/types';
 
+const FALLBACK_PATTERNS: MemoryPattern[] = [
+  { id: 'mem-1', pattern: 'Schema validation errors correlate with tool description ambiguity', mechanism_axis: 'exploration', score_delta: 0.05, evidence_run_ids: ['run-2026-04-24'] },
+  { id: 'mem-2', pattern: 'Retry logic improves accuracy by 5-8% on schema-sensitive tasks', mechanism_axis: 'exploitation', score_delta: 0.08, evidence_run_ids: ['run-2026-04-24'] },
+  { id: 'mem-3', pattern: 'Tool hashing causes regressions when tool signatures collide', mechanism_axis: 'exploration', score_delta: -0.04, evidence_run_ids: ['run-2026-04-24'] },
+];
+
 export function MemoryPanel() {
   const { logEntries, mode } = useDashboard();
   const [storedPatterns, setStoredPatterns] = useState<MemoryEntry[]>([]);

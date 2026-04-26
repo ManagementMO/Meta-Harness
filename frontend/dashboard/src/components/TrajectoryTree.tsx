@@ -243,6 +243,37 @@ export function TrajectoryTree() {
           .attr('font-weight', 600)
           .text('ACCEPTED');
       }
+
+      // Fork button (visible on hover)
+      const forkBtn = nodeG.append('g')
+        .attr('transform', `translate(${NODE_W - 28}, ${NODE_H - 22})`)
+        .attr('opacity', 0)
+        .attr('cursor', 'pointer')
+        .on('click', (event: MouseEvent) => {
+          event.stopPropagation();
+          setForkTarget({ candidate: node.candidate, checkpointId: 'a8f3c2e1' });
+        });
+
+      forkBtn.append('rect')
+        .attr('width', 22).attr('height', 16)
+        .attr('rx', 3)
+        .attr('fill', '#8878a8').attr('opacity', 0.15)
+        .attr('stroke', '#8878a8').attr('stroke-width', 0.5);
+
+      forkBtn.append('text')
+        .attr('x', 11).attr('y', 12)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#8878a8').attr('font-size', 10)
+        .attr('font-family', 'monospace')
+        .text('⑂');
+
+      nodeG
+        .on('mouseenter', function () {
+          forkBtn.transition().duration(150).attr('opacity', 1);
+        })
+        .on('mouseleave', function () {
+          forkBtn.transition().duration(150).attr('opacity', 0);
+        });
     }
   }, [tree, selectedNode, forkEvents, dispatch]);
 

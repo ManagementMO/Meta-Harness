@@ -36,3 +36,8 @@ html, body {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-active) transparent;
 }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
