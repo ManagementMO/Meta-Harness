@@ -248,9 +248,7 @@ export function startSSE(
 
 export function startMockSSE(
   dispatch: Dispatch<DashboardAction>,
-  seconds: number,
 ): () => void {
-  void seconds;
   dispatch({ type: "SET_MODE", payload: "mock" });
   if (demoFixtureState.run) {
     dispatch({ type: "SET_RUN", payload: demoFixtureState.run });
