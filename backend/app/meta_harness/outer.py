@@ -18,9 +18,11 @@ import importlib
 import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from app.meta_harness import frontier as fr
@@ -30,6 +32,35 @@ from app.meta_harness.harness import CodingAgentHarness
 from app.meta_harness.inner import run_inner_loop
 from app.meta_harness.sandbox import sandbox_for
 from app.meta_harness.state import MetaHarnessState
+from app.streaming import emit_run_event
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _thread_id(state: MetaHarnessState, config: RunnableConfig | None) -> str:
+    configurable = (config or {}).get("configurable", {})
+    return str(configurable.get("thread_id") or state["run_id"])
+
+
+def _summary(state: MetaHarnessState, *, iteration: int | None = None) -> dict[str, Any]:
+    return {
+        "candidates_count": len(state.get("candidates") or []),
+        "budget_remaining": state.get("budget_remaining"),
+        "best_candidate": state.get("best_candidate"),
+        "iteration": iteration if iteration is not None else state.get("iteration"),
+    }
+
+
+def _emit(
+    state: MetaHarnessState,
+    config: RunnableConfig | None,
+    event_type: str,
+    payload: dict[str, Any],
+) -> None:
+    payload.setdefault("thread_id", _thread_id(state, config))
+    emit_run_event(state["run_id"], event_type, payload)
 
 
 class OuterLoopRunner:
@@ -68,7 +99,11 @@ class OuterLoopRunner:
 
     # ── propose ───────────────────────────────────────────────────────
 
-    async def propose(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def propose(
+        self,
+        state: MetaHarnessState,
+        config: RunnableConfig = None,
+    ) -> dict[str, Any]:
         iteration = state["iteration"] + 1
         parent_name = state.get("best_candidate")
         if self.mock_proposer:
@@ -110,15 +145,44 @@ class OuterLoopRunner:
                     "cost_usd": None,
                 }
             )
+            _emit(
+                state,
+                config,
+                "candidate-created",
+                {
+                    "candidate": c["name"],
+                    "import_path": c["import_path"],
+                    "parent": c.get("parent"),
+                },
+            )
+        _emit(
+            state,
+            config,
+            "state-update",
+            {
+                "node": "propose",
+                "iteration": iteration,
+                "ts": _now(),
+                "summary": {
+                    **_summary(state, iteration=iteration),
+                    "candidates_count": len(new_candidates),
+                },
+            },
+        )
         return {"iteration": iteration, "candidates": new_candidates}
 
     # ── validate ──────────────────────────────────────────────────────
 
-    async def validate(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def validate(
+        self,
+        state: MetaHarnessState,
+        config: RunnableConfig = None,
+    ) -> dict[str, Any]:
         candidate = state["candidates"][-1]
         if str(self.repo_root) not in sys.path:
             sys.path.insert(0, str(self.repo_root))
         module_path, _, class_name = candidate["import_path"].partition(":")
+        error: str | None = None
         try:
             mod = await asyncio.to_thread(importlib.import_module, module_path)
             cls = getattr(mod, class_name)
@@ -130,14 +194,48 @@ class OuterLoopRunner:
         except Exception as exc:  # noqa: BLE001 — record any error
             candidate["status"] = "smoke_failed"
             candidate["scores"] = {"error": str(exc)}
+            error = str(exc)
             valid = False
+        payload: dict[str, Any] = {
+            "candidate": candidate["name"],
+            "valid": valid,
+        }
+        if error:
+            payload["error"] = error
+        _emit(state, config, "validate-result", payload)
+        _emit(
+            state,
+            config,
+            "state-update",
+            {
+                "node": "validate",
+                "iteration": state["iteration"],
+                "ts": _now(),
+                "summary": _summary(state),
+            },
+        )
         return {"candidates": state["candidates"], "_last_valid": valid}
 
     # ── benchmark ─────────────────────────────────────────────────────
 
-    async def benchmark(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def benchmark(
+        self,
+        state: MetaHarnessState,
+        config: RunnableConfig = None,
+    ) -> dict[str, Any]:
         candidate = state["candidates"][-1]
         if candidate["status"] == "smoke_failed":
+            _emit(
+                state,
+                config,
+                "state-update",
+                {
+                    "node": "benchmark",
+                    "iteration": state["iteration"],
+                    "ts": _now(),
+                    "summary": _summary(state),
+                },
+            )
             return {"candidates": state["candidates"]}
 
         task_dirs = sorted(
@@ -235,11 +333,38 @@ class OuterLoopRunner:
 
         candidate["scores"] = eval_result
         candidate["status"] = "evaluated"
+        _emit(
+            state,
+            config,
+            "eval-result",
+            {
+                "candidate": candidate["name"],
+                "accuracy": eval_result["accuracy"],
+                "per_task": eval_result["per_task"],
+                "tokens": eval_result["tokens"],
+                "cost_usd": eval_result["cost_usd"],
+            },
+        )
+        _emit(
+            state,
+            config,
+            "state-update",
+            {
+                "node": "benchmark",
+                "iteration": state["iteration"],
+                "ts": _now(),
+                "summary": _summary(state),
+            },
+        )
         return {"candidates": state["candidates"]}
 
     # ── update_frontier ───────────────────────────────────────────────
 
-    async def update_frontier(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def update_frontier(
+        self,
+        state: MetaHarnessState,
+        config: RunnableConfig = None,
+    ) -> dict[str, Any]:
         candidate = state["candidates"][-1]
         scored_statuses = {"evaluated", "accepted", "rejected"}
         evaluated = [
@@ -314,6 +439,37 @@ class OuterLoopRunner:
 
         new_best = candidate["name"] if accepted else prev_best
         new_frontier_names = frontier.get("_pareto_names", [])
+        _emit(
+            state,
+            config,
+            "frontier-updated",
+            {
+                "iteration": state["iteration"],
+                "frontier": new_frontier_names,
+                "best_candidate": new_best,
+                "delta": candidate["delta"],
+            },
+        )
+        _emit(
+            state,
+            config,
+            "iteration-complete",
+            {
+                "iteration": state["iteration"],
+                "status": "improved" if accepted else "no_improvement",
+            },
+        )
+        _emit(
+            state,
+            config,
+            "state-update",
+            {
+                "node": "update_frontier",
+                "iteration": state["iteration"],
+                "ts": _now(),
+                "summary": _summary(state),
+            },
+        )
         return {
             "candidates": state["candidates"],
             "frontier": new_frontier_names,
