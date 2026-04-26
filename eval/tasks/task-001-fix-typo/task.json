@@ -5,5 +5,6 @@
   "test_command": "pytest tests/test_calculator.py -q",
   "expected_files_changed": ["calculator.py"],
   "baseline_pass_rate": 0.70,
-  "best_known_pass_rate": 0.95
+  "best_known_pass_rate": 0.95,
+  "calibration_note": "Hardened 2026-04-25 (option 3). Added: type-strict return check, sub-unchanged structural check, anti-bloat symbol-count check. See docs/PROJECT_KNOWLEDGE_BASE.md §28.1."
 }
