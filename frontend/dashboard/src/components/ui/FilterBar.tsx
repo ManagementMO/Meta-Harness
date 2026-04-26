@@ -1,12 +1,12 @@
 'use client';
 
-type FilterBarProps = {
-  filters: string[];
-  active: string;
-  onSelect: (f: string) => void;
+type FilterBarProps<T extends string> = {
+  filters: readonly T[];
+  active: T;
+  onSelect: (f: T) => void;
 };
 
-export function FilterBar({ filters, active, onSelect }: FilterBarProps) {
+export function FilterBar<T extends string>({ filters, active, onSelect }: FilterBarProps<T>) {
   return (
     <div className="flex gap-1.5">
       {filters.map(f => (

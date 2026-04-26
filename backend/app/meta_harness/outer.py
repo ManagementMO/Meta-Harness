@@ -155,9 +155,13 @@ class OuterLoopRunner:
             )
         new_candidates = list(state.get("candidates") or [])
         for c in payload["candidates"]:
+            try:
+                candidate_name = runs_mod.validate_artifact_name(c["name"], kind="candidate")
+            except ValueError as exc:
+                raise ValueError(f"invalid proposer candidate: {exc}") from exc
             new_candidates.append(
                 {
-                    "name": c["name"],
+                    "name": candidate_name,
                     "import_path": c["import_path"],
                     "parent": c.get("parent"),
                     "hypothesis": c.get("hypothesis", ""),
@@ -175,7 +179,7 @@ class OuterLoopRunner:
                 config,
                 "candidate-created",
                 {
-                    "candidate": c["name"],
+                    "candidate": candidate_name,
                     "import_path": c["import_path"],
                     "parent": c.get("parent"),
                 },
@@ -312,9 +316,7 @@ class OuterLoopRunner:
             async def _one_trial(td: Path, spec: dict, trial_idx: int) -> tuple[str, int, bool]:
                 task_id = td.name
                 trace_dir = (
-                    self.run_dir
-                    / "candidates"
-                    / candidate["name"]
+                    runs_mod.candidate_dir(self.run_dir, candidate["name"])
                     / "traces"
                     / f"{task_id}-trial-{trial_idx}"
                 )

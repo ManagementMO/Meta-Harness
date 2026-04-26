@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { DashboardProvider, useDashboard, useDashboardDispatch } from '@/lib/state';
+import { DashboardProvider, useDashboardDispatch } from '@/lib/state';
 import { startSSE, startMockSSE } from '@/lib/sse';
 import { isBackendAvailable, getRunDetail, toRunInfo, toTreeNodes } from '@/lib/api';
 import { TopBar } from '@/components/TopBar';

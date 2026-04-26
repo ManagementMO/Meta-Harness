@@ -65,6 +65,49 @@ def _wait_for_status(client: TestClient, run_name: str, status: str) -> dict:
     raise AssertionError(f"run did not reach {status}; last={last}")
 
 
+def test_run_ids_reject_path_traversal():
+    clear_run_state()
+    clear_branch_state()
+    event_registry.clear()
+    repo_root = _make_test_repo()
+    outside = repo_root / "outside"
+    outside.mkdir()
+    (outside / "sentinel.txt").write_text("keep")
+
+    app = create_app(
+        repo_root=repo_root,
+        eval_tasks_dir=REPO_ROOT / "eval" / "tasks",
+        use_persistence=False,
+    )
+    try:
+        with TestClient(app) as client:
+            for run_name in ("..", "../outside", "nested/child", "%2E%2E", ""):
+                response = client.post(
+                    "/runs",
+                    json={
+                        "budget": 1,
+                        "fresh": True,
+                        "run_name": run_name,
+                        "proposer": "mock",
+                        "mock_bench": True,
+                        "trials": 1,
+                        "workers": 1,
+                    },
+                )
+                assert response.status_code == 422
+
+            for path in ("/runs/..", "/runs/%2E%2E", "/runs/nested%2Fchild"):
+                response = client.get(path)
+                assert response.status_code in {404, 405}
+
+        assert (outside / "sentinel.txt").read_text() == "keep"
+    finally:
+        clear_run_state()
+        clear_branch_state()
+        event_registry.clear()
+        _cleanup_repo(repo_root)
+
+
 def test_run_checkpoint_fork_branch_memory_api_flow():
     clear_run_state()
     clear_branch_state()

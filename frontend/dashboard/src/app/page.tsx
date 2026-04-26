@@ -56,7 +56,7 @@ function TypingTitle({ onComplete }: { onComplete: () => void }) {
   const [charCount, setCharCount] = useState(0);
   const [showCursor, setShowCursor] = useState(true);
 
-  const stableOnComplete = useCallback(onComplete, [onComplete]);
+  const stableOnComplete = useCallback(() => onComplete(), [onComplete]);
 
   useEffect(() => {
     if (charCount < TITLE.length) {

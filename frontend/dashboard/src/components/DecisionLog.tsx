@@ -5,7 +5,7 @@ import { FilterBar } from './ui/FilterBar';
 import { Badge } from './ui/Badge';
 import { PhasePipeline } from './ui/PhasePipeline';
 import { ForkEventCard } from './ForkEvent';
-import type { LogTag } from '@/lib/types';
+import type { LogFilter, LogTag } from '@/lib/types';
 
 const TAG_COLORS: Record<LogTag, string> = {
   orient: 'text-[#606888]',
@@ -51,10 +51,16 @@ export function DecisionLog() {
   const toggleExpand = (id: string) => {
     setExpandedLines(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };
+
+  const filtersForBar: LogFilter[] = ['all', 'tools', 'verify', 'scores', 'forks'];
 
   return (
     <div className="flex-1 flex flex-col bg-panel rounded overflow-hidden min-h-0">
@@ -67,9 +73,9 @@ export function DecisionLog() {
           </span>
         </div>
         <FilterBar
-          filters={['all', 'tools', 'verify', 'scores', 'forks']}
+          filters={filtersForBar}
           active={filters.activeFilter}
-          onSelect={f => dispatch({ type: 'SET_FILTER', payload: { activeFilter: f as any } })}
+          onSelect={f => dispatch({ type: 'SET_FILTER', payload: { activeFilter: f } })}
         />
       </div>
 

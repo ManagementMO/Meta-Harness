@@ -21,7 +21,35 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.meta_harness.outer import run_outer_loop  # noqa: E402
-from app.meta_harness.runs import make_run_dir  # noqa: E402
+from app.meta_harness.runs import candidate_dir, make_run_dir, make_run_path  # noqa: E402
+
+
+def test_run_and_candidate_names_reject_path_traversal(tmp_path: Path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sentinel.txt").write_text("keep")
+
+    for name in ("..", "../outside", "nested/child", "%2E%2E", ""):
+        try:
+            make_run_dir(tmp_path, name, fresh=True)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted invalid run name: {name}")
+
+    assert (outside / "sentinel.txt").read_text() == "keep"
+    assert make_run_path(tmp_path, "safe-run_1").name == "safe-run_1"
+
+    run_dir = make_run_dir(tmp_path, "safe-run", fresh=True)
+    for name in ("..", "../escape", "nested/child", "%2E%2E", ""):
+        try:
+            candidate_dir(run_dir, name)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted invalid candidate name: {name}")
+
+    assert candidate_dir(run_dir, "_mock_iter_1").name == "_mock_iter_1"
 
 
 async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
