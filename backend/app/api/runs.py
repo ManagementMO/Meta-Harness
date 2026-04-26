@@ -79,6 +79,10 @@ def _app_checkpointer(request: Request) -> Any:
     return getattr(request.app.state, "checkpointer", None)
 
 
+def _app_memory_store(request: Request) -> Any:
+    return getattr(request.app.state, "memory_store", None)
+
+
 def _default_skill_path(repo_root: Path, domain: str) -> Path:
     return repo_root / "skills" / f"meta-harness-{domain}" / "SKILL.md"
 
@@ -116,6 +120,7 @@ def _build_graph(
     workers: int,
     skill_path: Path | None,
     checkpointer: Any,
+    memory_store: Any = None,
 ) -> Any:
     runner = OuterLoopRunner(
         run_dir=run_dir,
@@ -127,6 +132,7 @@ def _build_graph(
         bench_workers=workers,
         skill_path=skill_path,
         checkpointer=checkpointer,
+        memory_store=memory_store,
     )
     return runner.build()
 
@@ -323,6 +329,7 @@ def get_run_graph(request: Request, run_id: str) -> Any:
         workers=int(manifest.get("workers", 3)),
         skill_path=skill_path,
         checkpointer=checkpointer,
+        memory_store=_app_memory_store(request),
     )
     return graph
 
@@ -405,6 +412,7 @@ async def create_run(
         workers=payload.workers,
         skill_path=skill_path,
         checkpointer=checkpointer,
+        memory_store=_app_memory_store(request),
     )
     record = RunRecord(
         run_id=run_id,

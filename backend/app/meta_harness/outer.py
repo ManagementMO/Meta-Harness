@@ -462,6 +462,16 @@ class OuterLoopRunner:
                     score_delta=candidate["delta"],
                     run_id=state["run_id"],
                 )
+                _emit(
+                    state,
+                    config,
+                    "memory-pattern-stored",
+                    {
+                        "namespace": ["learned_patterns", "coding-agent"],
+                        "key": candidate["name"],
+                        "score_delta": candidate["delta"],
+                    },
+                )
             except Exception:  # noqa: BLE001 — memory write is best-effort
                 pass
 
