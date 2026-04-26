@@ -41,7 +41,7 @@ function DashboardShell() {
     }
 
     if (runId === 'demo-2026-04-25') {
-      return startMockSSE(dispatch, 3);
+      return startMockSSE(dispatch);
     }
 
     dispatch({ type: 'SET_SSE_CONNECTED', payload: false });

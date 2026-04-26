@@ -31,28 +31,22 @@ export function ScoreChart() {
     () => [...mainNodes, ...forkNodes, ...rejectedNodes],
     [mainNodes, forkNodes, rejectedNodes],
   );
-  const taskBreakdown = useMemo(() => {
-    const tasks = bestNode?.scores.per_task ?? plottedNodes.at(-1)?.scores.per_task ?? {};
-    return Object.entries(tasks)
-      .map(([key, info]) => ({
-        key,
-        label: key.replace(/^task-/, '').replace(/_/g, '-'),
-        score: info.pass_rate,
-      }))
-      .sort((a, b) => b.score - a.score || a.key.localeCompare(b.key))
-      .slice(0, 8);
-  }, [bestNode, plottedNodes]);
-
   const focusNode = (selectedNode ? tree.find(n => n.candidate === selectedNode) : null) ?? bestNode;
   const tasks = focusNode?.scores.per_task
     ? Object.entries(focusNode.scores.per_task)
-        .map(([key, val]) => ({ key, label: key, score: val.pass_rate, trials: val.trials }))
+        .map(([key, val]) => ({
+          key,
+          label: key.replace(/^task-/, '').replace(/_/g, '-'),
+          score: val.pass_rate,
+          trials: val.trials,
+        }))
         .sort((a, b) => a.label.localeCompare(b.label))
+        .slice(0, 8)
     : [];
 
   const width = 500;
   const chartHeight = 300;
-  const barSectionHeight = taskBreakdown.length > 0 ? 38 + taskBreakdown.length * 20 : 76;
+  const barSectionHeight = tasks.length > 0 ? 38 + tasks.length * 20 : 76;
   const totalHeight = chartHeight + barSectionHeight;
   const pad = { top: 20, right: 20, bottom: 40, left: 55 };
   const w = width - pad.left - pad.right;
