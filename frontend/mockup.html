@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta-Harness — Dashboard v2</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-void: #050508;
+    --bg-panel: #0a0a0f;
+    --bg-header: #0d0d14;
+    --bg-node: #111118;
+    --bg-hover: #14141e;
+    --bg-active: #18182a;
+    --border: #1a1a24;
+    --border-active: #2a2a3a;
+    --text-hi: #e8e8f0;
+    --text-mid: #8888a0;
+    --text-lo: #4a4a5e;
+    --text-ghost: #2a2a3a;
+    --cyan: #00ffc8;
+    --green: #39ff14;
+    --red: #ff3b5c;
+    --amber: #ffb800;
+    --purple: #a855f7;
+    --blue: #5ca0f0;
+    --font: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+
+  body {
+    background: var(--bg-void);
+    color: var(--text-hi);
+    font-family: var(--font);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ════════════════════ TOP BAR ════════════════════ */
+  .topbar {
+    height: 44px;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+
+  .topbar-logo {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .topbar-sep { width: 1px; height: 18px; background: var(--border); }
+
+  .topbar-run-select {
+    font-size: 11px;
+    color: var(--text-mid);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+
+  .topbar-run-select:hover { border-color: var(--border-active); }
+
+  .topbar-run-select .live-dot {
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 8px #39ff1440;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .topbar-run-select .chevron {
+    font-size: 8px;
+    color: var(--text-lo);
+    margin-left: 4px;
+  }
+
+  .topbar-stats {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-lo);
+    display: flex;
+    gap: 20px;
+  }
+
+  .topbar-stats .stat-val { color: var(--text-mid); }
+  .topbar-stats .stat-best { color: var(--cyan); font-weight: 600; }
+
+  /* ════════════════════ MAIN 3-PANEL ════════════════════ */
+  .main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .panel-left { width: 28%; }
+  .panel-center { width: 42%; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+  .panel-right { width: 30%; }
+
+  .panel-header {
+    height: 36px;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-lo);
+    flex-shrink: 0;
+    gap: 8px;
+  }
+
+  .panel-header .icon { color: var(--cyan); font-size: 11px; }
+  .panel-header .live-badge {
+    margin-left: auto;
+    color: var(--green);
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .panel-header .live-badge .dot {
+    width: 5px; height: 5px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+
+  .panel-body {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    background: var(--bg-panel);
+  }
+
+  /* ════════════════════ LEFT: TRAJECTORY TREE ════════════════════ */
+  .tree-toolbar {
+    height: 30px;
+    background: var(--bg-void);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .tree-btn {
+    font-family: var(--font);
+    font-size: 9px;
+    color: var(--text-lo);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .tree-btn:hover { border-color: var(--text-lo); color: var(--text-mid); }
+  .tree-btn.active { border-color: var(--cyan); color: var(--cyan); background: #00ffc808; }
+
+  .tree-zoom {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+
+  .tree-zoom button {
+    font-family: var(--font);
+    font-size: 11px;
+    color: var(--text-lo);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .tree-zoom button:hover { border-color: var(--text-lo); color: var(--text-mid); }
+
+  .tree-canvas {
+    width: 100%;
+    height: 100%;
+    padding: 24px 10px;
+    cursor: grab;
+  }
+
+  .tree-canvas:active { cursor: grabbing; }
+
+  svg.tree-svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .tree-edge { stroke: var(--text-ghost); stroke-width: 1.5; fill: none; }
+  .tree-edge.accepted { stroke: var(--green); stroke-width: 1.5; filter: drop-shadow(0 0 3px #39ff1425); }
+  .tree-edge.rejected { stroke: var(--text-ghost); stroke-width: 1; stroke-dasharray: 4 4; }
+  .tree-edge.fork { stroke: var(--purple); stroke-width: 1.5; filter: drop-shadow(0 0 3px #a855f725); }
+
+  .tree-node { cursor: pointer; }
+  .tree-node rect { rx: 5; ry: 5; transition: all 0.15s; }
+  .tree-node:hover rect { filter: brightness(1.3); }
+
+  .tree-node.selected rect { stroke-width: 2.5 !important; }
+
+  .n-label { fill: var(--text-hi); font-family: var(--font); font-size: 10px; font-weight: 500; }
+  .n-score { font-family: var(--font); font-weight: 700; }
+  .n-score.green { fill: var(--green); font-size: 13px; }
+  .n-score.red { fill: var(--red); font-size: 13px; }
+  .n-score.cyan { fill: var(--cyan); font-size: 14px; }
+  .n-score.dim { fill: var(--text-lo); font-size: 12px; }
+  .n-delta { font-family: var(--font); font-size: 9px; }
+  .n-delta.pos { fill: var(--green); }
+  .n-delta.neg { fill: var(--red); }
+  .n-iter { fill: var(--text-lo); font-family: var(--font); font-size: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .n-badge { font-family: var(--font); font-size: 7px; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Fork divider in tree */
+  .fork-zone rect {
+    fill: #a855f708;
+    stroke: var(--purple);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+    rx: 4;
+    opacity: 0.6;
+  }
+  .fork-zone text {
+    fill: var(--purple);
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+
+  .fork-zone .fork-reason {
+    fill: var(--text-lo);
+    font-size: 8px;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  /* ════════════════════ CENTER: DECISION LOG ════════════════════ */
+  .log-filters {
+    height: 34px;
+    background: var(--bg-void);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .log-filter-btn {
+    font-family: var(--font);
+    font-size: 9px;
+    color: var(--text-lo);
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .log-filter-btn:hover { color: var(--text-mid); }
+  .log-filter-btn.active { border-color: var(--cyan); color: var(--cyan); background: #00ffc806; }
+
+  .log-search {
+    margin-left: auto;
+    font-family: var(--font);
+    font-size: 10px;
+    color: var(--text-mid);
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 8px;
+    width: 140px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .log-search::placeholder { color: var(--text-ghost); }
+  .log-search:focus { border-color: var(--cyan); }
+
+  .log-body { padding: 6px 0; font-size: 12px; line-height: 1.6; }
+
+  /* Iteration chapter headers — BIG and clear */
+  .ch {
+    padding: 12px 14px 6px;
+    margin-top: 8px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .ch:first-child { margin-top: 0; border-top: none; }
+
+  .ch-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .ch-iter {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 1px;
+  }
+
+  .ch-iter.fork-ch { color: var(--purple); }
+
+  .ch-candidate {
+    font-size: 11px;
+    color: var(--text-mid);
+    font-weight: 500;
+  }
+
+  .ch-status {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .ch-status.accepted { background: #39ff1410; color: var(--green); }
+  .ch-status.rejected { background: #ff3b5c10; color: var(--red); }
+  .ch-status.running { background: #00ffc810; color: var(--cyan); }
+
+  .ch-phases {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    padding-left: 2px;
+  }
+
+  .ch-phase {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--text-lo);
+    background: #ffffff04;
+  }
+
+  .ch-phase.done { color: var(--text-mid); background: #ffffff08; }
+  .ch-phase.active { color: var(--cyan); background: #00ffc80e; box-shadow: 0 0 8px #00ffc808; }
+  .ch-phase.active.fork-phase { color: var(--purple); background: #a855f70e; box-shadow: 0 0 8px #a855f708; }
+
+  .ch-arrow { font-size: 8px; color: var(--text-ghost); }
+
+  .ch-hypothesis {
+    font-size: 10px;
+    color: var(--text-lo);
+    padding-left: 2px;
+    font-style: italic;
+  }
+
+  .ch-hypothesis em { font-style: normal; color: var(--text-mid); }
+
+  /* Log lines */
+  .ll {
+    padding: 2px 14px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.1s;
+  }
+
+  .ll:hover { background: var(--bg-hover); }
+  .ll.selected { background: var(--bg-active); border-left-color: var(--cyan); }
+  .ll.expandable { cursor: pointer; }
+
+  .ll-ts {
+    color: var(--text-ghost);
+    font-size: 9px;
+    min-width: 52px;
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+
+  .ll-tag {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    min-width: 48px;
+    text-align: center;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .ll-tag.orient { background: #24243e; color: #9090ff; }
+  .ll-tag.plan   { background: #1a2438; color: var(--blue); }
+  .ll-tag.tool   { background: #0a1a12; color: var(--green); }
+  .ll-tag.act    { background: #0e1a1a; color: var(--cyan); }
+  .ll-tag.verify { background: #1e1a0a; color: var(--amber); }
+  .ll-tag.score  { background: #0a1a15; color: var(--green); }
+  .ll-tag.fail   { background: #1e0a10; color: var(--red); }
+  .ll-tag.fork   { background: #1a0a2a; color: var(--purple); }
+  .ll-tag.mem    { background: #1e180a; color: var(--amber); }
+
+  .ll-text {
+    color: var(--text-mid);
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ll-text .hi { color: var(--text-hi); }
+  .ll-text .file { color: var(--cyan); opacity: 0.75; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
+  .ll-text .file:hover { text-decoration-color: var(--cyan); }
+  .ll-text .cmd { color: var(--text-hi); background: #ffffff08; padding: 1px 5px; border-radius: 2px; font-size: 11px; }
+  .ll-text .val-g { color: var(--green); font-weight: 700; }
+  .ll-text .val-r { color: var(--red); font-weight: 700; }
+  .ll-text .val-c { color: var(--cyan); font-weight: 700; }
+
+  .ll-expand {
+    color: var(--text-ghost);
+    font-size: 10px;
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .ll:hover .ll-expand { color: var(--text-lo); }
+
+  /* Expandable detail block */
+  .ll-detail {
+    margin: 0 14px 4px 74px;
+    padding: 8px 10px;
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--text-lo);
+    max-height: 160px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .ll-detail .pass { color: var(--green); }
+  .ll-detail .fail { color: var(--red); font-weight: 600; }
+  .ll-detail .dim { color: var(--text-ghost); }
+
+  /* Score result bar */
+  .score-bar {
+    margin: 6px 14px 6px 14px;
+    padding: 8px 12px;
+    background: #ffffff03;
+    border-radius: 4px;
+    border-left: 3px solid;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .score-bar.accepted { border-color: var(--green); }
+  .score-bar.rejected { border-color: var(--red); }
+  .score-bar.best { border-color: var(--cyan); background: #00ffc805; }
+  .score-bar.fork-score { border-color: var(--purple); }
+
+  .score-bar-label { font-size: 10px; color: var(--text-lo); }
+  .score-bar-label .outcome { font-weight: 600; }
+  .score-bar-label .outcome.ok { color: var(--green); }
+  .score-bar-label .outcome.bad { color: var(--red); }
+
+  .score-bar-val { font-weight: 700; font-size: 16px; }
+  .score-bar-val.green { color: var(--green); }
+  .score-bar-val.red { color: var(--red); }
+  .score-bar-val.cyan { color: var(--cyan); }
+  .score-bar-val.purple { color: var(--purple); }
+  .score-bar-delta { font-size: 10px; font-weight: 400; color: var(--text-lo); margin-left: 6px; }
+
+  /* Fork event block */
+  .fork-event {
+    margin: 12px 14px;
+    padding: 10px 14px;
+    background: #a855f706;
+    border: 1px solid #a855f720;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .fork-event-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .fork-event-icon {
+    font-size: 14px;
+    color: var(--purple);
+    font-weight: 700;
+  }
+
+  .fork-event-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--purple);
+    letter-spacing: 0.5px;
+  }
+
+  .fork-event-ts {
+    margin-left: auto;
+    font-size: 9px;
+    color: var(--text-lo);
+  }
+
+  .fork-event-detail {
+    font-size: 10px;
+    color: var(--text-lo);
+    padding-left: 24px;
+    line-height: 1.6;
+  }
+
+  .fork-event-detail .label { color: var(--text-ghost); }
+  .fork-event-detail .val { color: var(--text-mid); }
+
+  /* Cursor */
+  .cursor-blink {
+    display: inline-block;
+    width: 7px; height: 14px;
+    background: var(--cyan);
+    animation: blink 1s step-end infinite;
+    vertical-align: middle;
+    margin-left: 2px;
+    opacity: 0.7;
+  }
+
+  @keyframes blink { 0%,100% { opacity: 0.7; } 50% { opacity: 0; } }
+
+  /* ════════════════════ RIGHT: CONTEXT PANEL ════════════════════ */
+  .ctx-tabs {
+    height: 30px;
+    background: var(--bg-void);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .ctx-tab {
+    font-family: var(--font);
+    font-size: 9px;
+    color: var(--text-lo);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+
+  .ctx-tab:hover { color: var(--text-mid); }
+  .ctx-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+  /* Score chart */
+  .chart-area {
+    padding: 20px 16px;
+    height: 200px;
+  }
+
+  .chart-area svg { width: 100%; height: 100%; }
+
+  .chart-grid { stroke: var(--border); stroke-width: 0.5; }
+  .chart-label { fill: var(--text-ghost); font-family: var(--font); font-size: 8px; }
+  .chart-line { fill: none; stroke-width: 2; }
+  .chart-line.main { stroke: var(--green); filter: drop-shadow(0 0 4px #39ff1430); }
+  .chart-line.fork { stroke: var(--purple); filter: drop-shadow(0 0 4px #a855f730); }
+  .chart-dot { stroke-width: 2; }
+  .chart-dot.accepted { fill: var(--bg-void); stroke: var(--green); }
+  .chart-dot.rejected { fill: var(--bg-void); stroke: var(--red); }
+  .chart-dot.best { fill: var(--cyan); stroke: var(--cyan); filter: drop-shadow(0 0 6px #00ffc840); }
+  .chart-dot.fork-dot { fill: var(--bg-void); stroke: var(--purple); }
+
+  .chart-baseline {
+    stroke: var(--text-ghost);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+  }
+
+  .chart-baseline-label {
+    fill: var(--text-ghost);
+    font-family: var(--font);
+    font-size: 8px;
+  }
+
+  /* Diff viewer */
+  .diff-area {
+    padding: 12px;
+  }
+
+  .diff-file-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-radius: 4px 4px 0 0;
+    font-size: 10px;
+  }
+
+  .diff-file-header .fname { color: var(--cyan); }
+  .diff-file-header .meta { color: var(--text-lo); margin-left: auto; }
+  .diff-file-header .added { color: var(--green); }
+  .diff-file-header .removed { color: var(--red); }
+
+  .diff-content {
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    padding: 8px 0;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+
+  .diff-line {
+    padding: 0 12px;
+    display: flex;
+    gap: 0;
+    white-space: pre;
+  }
+
+  .diff-line .ln {
+    min-width: 32px;
+    text-align: right;
+    color: var(--text-ghost);
+    padding-right: 10px;
+    user-select: none;
+    font-size: 10px;
+  }
+
+  .diff-line .code { flex: 1; }
+
+  .diff-line.ctx { color: var(--text-lo); }
+  .diff-line.add { background: #39ff1408; color: var(--green); }
+  .diff-line.add .ln { color: #39ff1440; }
+  .diff-line.del { background: #ff3b5c08; color: var(--red); }
+  .diff-line.del .ln { color: #ff3b5c40; }
+
+  /* Test output */
+  .test-area {
+    padding: 12px;
+  }
+
+  .test-header {
+    padding: 6px 10px;
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-radius: 4px 4px 0 0;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .test-header .test-file { color: var(--text-mid); }
+  .test-header .test-result { margin-left: auto; font-weight: 600; }
+  .test-header .test-result.pass { color: var(--green); }
+  .test-header .test-result.fail { color: var(--red); }
+
+  .test-content {
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    padding: 10px 12px;
+    font-size: 10px;
+    line-height: 1.7;
+    color: var(--text-lo);
+    white-space: pre-wrap;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .test-content .pass-line { color: var(--green); }
+  .test-content .fail-line { color: var(--red); font-weight: 500; }
+  .test-content .trace { color: var(--red); opacity: 0.7; }
+  .test-content .dim { color: var(--text-ghost); }
+
+  /* ════════════════════ STATUS BAR ════════════════════ */
+  .statusbar {
+    height: 22px;
+    background: var(--bg-header);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 8px;
+    color: var(--text-ghost);
+    gap: 16px;
+    flex-shrink: 0;
+    letter-spacing: 0.5px;
+  }
+
+  .statusbar .st-live {
+    color: var(--green);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .statusbar .st-live .dot {
+    width: 4px; height: 4px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-ghost); }
+</style>
+</head>
+<body>
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="topbar">
+  <span class="topbar-logo">Meta-Harness</span>
+  <span class="topbar-sep"></span>
+  <div class="topbar-run-select">
+    <span class="live-dot"></span>
+    demo-2026-04-25
+    <span class="chevron">▾</span>
+  </div>
+  <div class="topbar-stats">
+    <span>iter <span class="stat-val">4/5</span></span>
+    <span>branches <span class="stat-val">2</span></span>
+    <span>best <span class="stat-best">0.85</span></span>
+    <span>cost <span class="stat-val">$2.14</span></span>
+    <span>elapsed <span class="stat-val">4m 32s</span></span>
+  </div>
+</div>
+
+<!-- ═══ MAIN 3-PANEL ═══ -->
+<div class="main">
+
+  <!-- ─── LEFT: TRAJECTORY TREE ─── -->
+  <div class="panel panel-left">
+    <div class="panel-header">
+      <span class="icon">◆</span> Trajectory
+    </div>
+    <div class="tree-toolbar">
+      <button class="tree-btn active">all</button>
+      <button class="tree-btn">winning path</button>
+      <button class="tree-btn">forks only</button>
+      <div class="tree-zoom">
+        <button>−</button>
+        <button>+</button>
+        <button>⊡</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="tree-canvas">
+        <svg class="tree-svg" viewBox="0 0 380 620" preserveAspectRatio="xMidYMid meet">
+
+          <!-- Edges -->
+          <path d="M 190 60 L 190 100" class="tree-edge accepted"/>
+          <path d="M 190 160 L 110 220" class="tree-edge rejected"/>
+          <path d="M 190 160 L 280 220" class="tree-edge fork"/>
+          <path d="M 110 280 L 110 340" class="tree-edge accepted"/>
+          <path d="M 110 400 L 110 460" class="tree-edge accepted"/>
+          <path d="M 280 280 L 280 340" class="tree-edge fork"/>
+
+          <!-- NODE: baseline -->
+          <g class="tree-node" transform="translate(120, 30)">
+            <rect width="140" height="40" fill="var(--bg-node)" stroke="var(--text-ghost)" stroke-width="1"/>
+            <text x="10" y="16" class="n-iter">seed</text>
+            <text x="10" y="30" class="n-label">baseline</text>
+            <text x="100" y="30" class="n-score dim">0.62</text>
+          </g>
+
+          <!-- NODE: retry-on-schema-drift -->
+          <g class="tree-node" transform="translate(120, 90)">
+            <rect width="140" height="50" fill="#081a12" stroke="var(--green)" stroke-width="1.5" filter="drop-shadow(0 0 6px #39ff1418)"/>
+            <text x="10" y="14" class="n-iter">iter 1</text>
+            <text x="10" y="28" class="n-label">retry-schema-drift</text>
+            <text x="10" y="42" class="n-score green">0.70</text>
+            <text x="48" y="42" class="n-delta pos">+0.08</text>
+          </g>
+
+          <!-- FORK ZONE -->
+          <g class="fork-zone" transform="translate(72, 167)">
+            <rect width="244" height="36" />
+            <text x="100" y="15">⑂ FORK</text>
+            <text x="72" y="28" class="fork-reason">prior: "try tool desc examples"</text>
+          </g>
+
+          <!-- NODE: stricter-tool-hashing (rejected) -->
+          <g class="tree-node" transform="translate(40, 220)">
+            <rect width="140" height="50" fill="#18080e" stroke="var(--red)" stroke-width="1" opacity="0.5"/>
+            <text x="10" y="14" class="n-iter">iter 2</text>
+            <text x="10" y="28" class="n-label" style="opacity:0.5">stricter-hashing</text>
+            <text x="10" y="42" class="n-score red">0.66</text>
+            <text x="48" y="42" class="n-delta neg">−0.04</text>
+            <text x="88" y="14" class="n-badge" fill="var(--red)">rejected</text>
+          </g>
+
+          <!-- NODE: early-exit -->
+          <g class="tree-node" transform="translate(40, 340)">
+            <rect width="140" height="50" fill="#081a12" stroke="var(--green)" stroke-width="1.5" filter="drop-shadow(0 0 6px #39ff1418)"/>
+            <text x="10" y="14" class="n-iter">iter 3</text>
+            <text x="10" y="28" class="n-label">early-exit-auth</text>
+            <text x="10" y="42" class="n-score green">0.74</text>
+            <text x="48" y="42" class="n-delta pos">+0.04</text>
+          </g>
+
+          <!-- NODE: more-specific-desc -->
+          <g class="tree-node" transform="translate(40, 460)">
+            <rect width="140" height="50" fill="#081a12" stroke="var(--green)" stroke-width="1.5" filter="drop-shadow(0 0 6px #39ff1418)"/>
+            <text x="10" y="14" class="n-iter">iter 4</text>
+            <text x="10" y="28" class="n-label">more-specific-desc</text>
+            <text x="10" y="42" class="n-score green">0.80</text>
+            <text x="48" y="42" class="n-delta pos">+0.06</text>
+          </g>
+
+          <!-- NODE: rewrite-tool-desc (forked) -->
+          <g class="tree-node" transform="translate(210, 220)">
+            <rect width="140" height="50" fill="#120a1a" stroke="var(--purple)" stroke-width="1.5" filter="drop-shadow(0 0 6px #a855f718)"/>
+            <text x="10" y="14" class="n-iter">iter 2'</text>
+            <text x="10" y="28" class="n-label">rewrite-tool-desc</text>
+            <text x="10" y="42" class="n-score green">0.78</text>
+            <text x="48" y="42" class="n-delta pos">+0.16</text>
+          </g>
+
+          <!-- NODE: few-shot-demos (BEST) -->
+          <g class="tree-node selected" transform="translate(210, 340)">
+            <rect width="140" height="50" fill="#081a18" stroke="var(--cyan)" stroke-width="2.5" filter="drop-shadow(0 0 12px #00ffc830)"/>
+            <text x="10" y="14" class="n-iter">iter 3'</text>
+            <text x="10" y="28" class="n-label">few-shot-demos</text>
+            <text x="10" y="42" class="n-score cyan">0.85</text>
+            <text x="50" y="42" class="n-delta pos">+0.07</text>
+            <text x="92" y="14" class="n-badge" fill="var(--cyan)">★ BEST</text>
+          </g>
+
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── CENTER: DECISION LOG ─── -->
+  <div class="panel panel-center">
+    <div class="panel-header">
+      <span class="icon">▸</span> Decision Log
+      <span class="live-badge"><span class="dot"></span> LIVE</span>
+    </div>
+    <div class="log-filters">
+      <button class="log-filter-btn active">all</button>
+      <button class="log-filter-btn">tools</button>
+      <button class="log-filter-btn">verify</button>
+      <button class="log-filter-btn">scores</button>
+      <button class="log-filter-btn">forks</button>
+      <input class="log-search" type="text" placeholder="search log..." />
+    </div>
+    <div class="panel-body">
+      <div class="log-body">
+
+        <!-- ── ITERATION 1 ── -->
+        <div class="ch">
+          <div class="ch-top">
+            <span class="ch-iter">Iter 1</span>
+            <span class="ch-candidate">retry-on-schema-drift</span>
+            <span class="ch-status accepted">accepted</span>
+          </div>
+          <div class="ch-phases">
+            <span class="ch-phase done">propose</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">validate</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">benchmark</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">frontier</span>
+          </div>
+          <div class="ch-hypothesis">hypothesis: <em>"retry on schema_drift errors reduces task-003 failures"</em></div>
+        </div>
+
+        <div class="ll">
+          <span class="ll-ts">14:30:02</span>
+          <span class="ll-tag orient">orient</span>
+          <span class="ll-text">scanned workspace — <span class="hi">5 files</span>, python, pytest runner</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:30:06</span>
+          <span class="ll-tag tool">read</span>
+          <span class="ll-text"><span class="file">agents/baseline.py</span> — 42 lines</span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:30:08</span>
+          <span class="ll-tag tool">read</span>
+          <span class="ll-text"><span class="file">traces/task-003-trial-1/verify.json</span> — schema_drift error</span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="ll selected">
+          <span class="ll-ts">14:30:11</span>
+          <span class="ll-tag tool">patch</span>
+          <span class="ll-text"><span class="file">agents/retry_on_schema_drift.py</span> — <span class="hi">+18 lines</span></span>
+          <span class="ll-expand">▾</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:30:18</span>
+          <span class="ll-tag verify">verify</span>
+          <span class="ll-text"><span class="cmd">pytest tests/ -q</span> — task-001 through task-005</span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="score-bar accepted">
+          <span class="score-bar-label">accuracy — <span class="outcome ok">accepted</span></span>
+          <span><span class="score-bar-val green">0.70</span><span class="score-bar-delta">+0.08 from baseline</span></span>
+        </div>
+
+        <!-- ── ITERATION 2 ── -->
+        <div class="ch">
+          <div class="ch-top">
+            <span class="ch-iter">Iter 2</span>
+            <span class="ch-candidate">stricter-tool-hashing</span>
+            <span class="ch-status rejected">rejected</span>
+          </div>
+          <div class="ch-phases">
+            <span class="ch-phase done">propose</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">validate</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">benchmark</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">frontier</span>
+          </div>
+          <div class="ch-hypothesis">hypothesis: <em>"stricter tool-description hashing reduces context misses"</em></div>
+        </div>
+
+        <div class="ll">
+          <span class="ll-ts">14:31:44</span>
+          <span class="ll-tag tool">read</span>
+          <span class="ll-text"><span class="file">traces/task-001-trial-1/act-tools.jsonl</span></span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:31:52</span>
+          <span class="ll-tag tool">patch</span>
+          <span class="ll-text"><span class="file">agents/stricter_tool_hashing.py</span> — <span class="hi">+31 lines</span></span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="ll expandable">
+          <span class="ll-ts">14:32:05</span>
+          <span class="ll-tag verify">verify</span>
+          <span class="ll-text"><span class="cmd">pytest tests/ -q</span></span>
+          <span class="ll-expand">▾</span>
+        </div>
+        <div class="ll-detail"><span class="dim">tests/test_calculator.py</span>  <span class="pass">PASSED</span>  test_add
+<span class="dim">tests/test_calculator.py</span>  <span class="pass">PASSED</span>  test_subtract
+<span class="dim">tests/test_calculator.py</span>  <span class="pass">PASSED</span>  test_multiply
+<span class="dim">tests/test_stats.py</span>      <span class="fail">FAILED</span>  test_median_empty
+<span class="trace">    &gt; assert median([]) == 0.0
+    E   TypeError: median() missing 1 required positional argument</span>
+<span class="dim">tests/test_stats.py</span>      <span class="fail">FAILED</span>  test_median_even
+<span class="trace">    &gt; assert median([1, 3]) == 2.0
+    E   AssertionError: assert 1 == 2.0</span>
+
+<span class="pass">3 passed</span>, <span class="fail">2 failed</span> <span class="dim">in 3.4s</span></div>
+        <div class="score-bar rejected">
+          <span class="score-bar-label">accuracy — <span class="outcome bad">regression</span></span>
+          <span><span class="score-bar-val red">0.66</span><span class="score-bar-delta">−0.04</span></span>
+        </div>
+
+        <!-- ── FORK EVENT ── -->
+        <div class="fork-event">
+          <div class="fork-event-header">
+            <span class="fork-event-icon">⑂</span>
+            <span class="fork-event-title">Fork created from iteration 2</span>
+            <span class="fork-event-ts">14:33:00</span>
+          </div>
+          <div class="fork-event-detail">
+<span class="label">parent checkpoint:</span> <span class="val">ckpt_a8f3…2e1b (after iter 1, score 0.70)</span>
+<span class="label">new prior:</span> <span class="val">"rewrite tool descriptions with concrete examples instead of hashing"</span>
+<span class="label">branch id:</span> <span class="val">demo-2026-04-25.fork.c7a1e3f0</span>
+<span class="label">rationale:</span> <span class="val">iter 2 took wrong direction — hashing made descriptions worse. try adding examples instead.</span></div>
+        </div>
+
+        <!-- ── ITERATION 3 (main) ── -->
+        <div class="ch">
+          <div class="ch-top">
+            <span class="ch-iter">Iter 3</span>
+            <span class="ch-candidate">early-exit-on-auth</span>
+            <span class="ch-status accepted">accepted</span>
+          </div>
+          <div class="ch-phases">
+            <span class="ch-phase done">propose</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">validate</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">benchmark</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">frontier</span>
+          </div>
+        </div>
+
+        <div class="ll">
+          <span class="ll-ts">14:33:20</span>
+          <span class="ll-tag tool">patch</span>
+          <span class="ll-text"><span class="file">agents/early_exit_auth.py</span> — <span class="hi">+12 lines</span></span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:33:45</span>
+          <span class="ll-tag verify">verify</span>
+          <span class="ll-text"><span class="cmd">pytest tests/ -q</span> — <span class="val-g">4 passed</span>, <span class="val-r">1 failed</span></span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="score-bar accepted">
+          <span class="score-bar-label">accuracy — <span class="outcome ok">accepted</span></span>
+          <span><span class="score-bar-val green">0.74</span><span class="score-bar-delta">+0.04</span></span>
+        </div>
+
+        <!-- ── ITERATION 2' (fork) ── -->
+        <div class="ch">
+          <div class="ch-top">
+            <span class="ch-iter fork-ch">Iter 2'</span>
+            <span class="ch-candidate">rewrite-tool-descriptions</span>
+            <span class="ch-status accepted">accepted</span>
+          </div>
+          <div class="ch-phases">
+            <span class="ch-phase done">propose</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase done">validate</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase active fork-phase">benchmark</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase">frontier</span>
+          </div>
+          <div class="ch-hypothesis">hypothesis: <em>"concrete examples in tool descriptions improve patch accuracy"</em></div>
+        </div>
+
+        <div class="ll">
+          <span class="ll-ts">14:33:41</span>
+          <span class="ll-tag fork">fork</span>
+          <span class="ll-text">evaluating <span class="hi">rewrite-tool-descriptions</span> — task-001 trial 1/5</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:33:48</span>
+          <span class="ll-tag tool">patch</span>
+          <span class="ll-text"><span class="file">agents/rewrite_tool_desc.py</span> — <span class="hi">+24 lines</span>, 3 examples</span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:34:02</span>
+          <span class="ll-tag act">act</span>
+          <span class="ll-text">running task-003 trial 4/5 — <span class="file">stats.py</span><span class="cursor-blink"></span></span>
+        </div>
+        <div class="score-bar fork-score">
+          <span class="score-bar-label">fork accuracy</span>
+          <span><span class="score-bar-val purple">0.78</span><span class="score-bar-delta">+0.16 from iter 1</span></span>
+        </div>
+
+        <!-- ── ITERATION 3' (fork) ── -->
+        <div class="ch">
+          <div class="ch-top">
+            <span class="ch-iter fork-ch">Iter 3'</span>
+            <span class="ch-candidate">few-shot-demos</span>
+            <span class="ch-status running">running</span>
+          </div>
+          <div class="ch-phases">
+            <span class="ch-phase done">propose</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase active fork-phase">benchmark</span>
+            <span class="ch-arrow">→</span>
+            <span class="ch-phase">frontier</span>
+          </div>
+          <div class="ch-hypothesis">hypothesis: <em>"adding few-shot demos to tool descriptions improves first-try accuracy"</em></div>
+        </div>
+
+        <div class="ll">
+          <span class="ll-ts">14:35:10</span>
+          <span class="ll-tag fork">fork</span>
+          <span class="ll-text">evaluating <span class="hi">few-shot-demos</span> — task-002 trial 2/5</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:35:18</span>
+          <span class="ll-tag tool">read</span>
+          <span class="ll-text"><span class="file">traces/task-002-trial-1/act-tools.jsonl</span> — analyzing prior attempts</span>
+          <span class="ll-expand">▸</span>
+        </div>
+        <div class="ll">
+          <span class="ll-ts">14:35:22</span>
+          <span class="ll-tag act">act</span>
+          <span class="ll-text">trial 2/5 — applying patch to <span class="file">stats.py</span><span class="cursor-blink"></span></span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── RIGHT: CONTEXT PANEL ─── -->
+  <div class="panel panel-right">
+    <div class="panel-header">
+      <span class="icon">◇</span> Context
+    </div>
+    <div class="ctx-tabs">
+      <button class="ctx-tab">Score Chart</button>
+      <button class="ctx-tab active">Diff</button>
+      <button class="ctx-tab">Test Output</button>
+    </div>
+    <div class="panel-body">
+
+      <!-- Score Chart (hidden when diff tab active, shown for reference) -->
+      <div class="chart-area" style="border-bottom: 1px solid var(--border);">
+        <svg viewBox="0 0 300 140" preserveAspectRatio="xMidYMid meet">
+          <!-- Grid -->
+          <line x1="35" y1="10" x2="35" y2="120" class="chart-grid"/>
+          <line x1="35" y1="120" x2="290" y2="120" class="chart-grid"/>
+          <line x1="35" y1="70" x2="290" y2="70" class="chart-grid" opacity="0.3"/>
+          <line x1="35" y1="35" x2="290" y2="35" class="chart-grid" opacity="0.3"/>
+
+          <!-- Y labels -->
+          <text x="30" y="123" class="chart-label" text-anchor="end">0.60</text>
+          <text x="30" y="73" class="chart-label" text-anchor="end">0.75</text>
+          <text x="30" y="38" class="chart-label" text-anchor="end">0.90</text>
+
+          <!-- X labels -->
+          <text x="60" y="132" class="chart-label" text-anchor="middle">seed</text>
+          <text x="110" y="132" class="chart-label" text-anchor="middle">1</text>
+          <text x="160" y="132" class="chart-label" text-anchor="middle">2</text>
+          <text x="210" y="132" class="chart-label" text-anchor="middle">3</text>
+          <text x="260" y="132" class="chart-label" text-anchor="middle">4</text>
+
+          <!-- Baseline -->
+          <line x1="35" y1="106" x2="290" y2="106" class="chart-baseline"/>
+          <text x="292" y="109" class="chart-baseline-label">baseline 0.62</text>
+
+          <!-- Main branch line -->
+          <polyline points="60,106 110,80 160,93 210,72 260,52" class="chart-line main"/>
+
+          <!-- Fork branch line -->
+          <polyline points="110,80 185,44 240,24" class="chart-line fork"/>
+
+          <!-- Dots -->
+          <circle cx="60" cy="106" r="3" class="chart-dot accepted"/>
+          <circle cx="110" cy="80" r="3" class="chart-dot accepted"/>
+          <circle cx="160" cy="93" r="3" class="chart-dot rejected"/>
+          <circle cx="210" cy="72" r="3" class="chart-dot accepted"/>
+          <circle cx="260" cy="52" r="3" class="chart-dot accepted"/>
+
+          <!-- Fork dots -->
+          <circle cx="185" cy="44" r="3" class="chart-dot fork-dot"/>
+          <circle cx="240" cy="24" r="4" class="chart-dot best"/>
+
+          <!-- Branch labels on chart -->
+          <text x="262" y="48" class="chart-label" fill="var(--green)">0.80</text>
+          <text x="242" y="20" class="chart-label" fill="var(--cyan)" font-weight="700">0.85</text>
+        </svg>
+      </div>
+
+      <!-- Diff Viewer -->
+      <div class="diff-area">
+        <div class="diff-file-header">
+          <span class="fname">agents/retry_on_schema_drift.py</span>
+          <span class="meta"><span class="added">+18</span> / <span class="removed">−0</span></span>
+        </div>
+        <div class="diff-content">
+<div class="diff-line ctx"><span class="ln">1</span><span class="code">from app.meta_harness.harness import CodingAgentHarness</span></div>
+<div class="diff-line ctx"><span class="ln">2</span><span class="code"></span></div>
+<div class="diff-line ctx"><span class="ln">3</span><span class="code">class BaselineHarness(CodingAgentHarness):</span></div>
+<div class="diff-line del"><span class="ln">4</span><span class="code">-    """Baseline. No overrides."""</span></div>
+<div class="diff-line del"><span class="ln">5</span><span class="code">-    pass</span></div>
+<div class="diff-line add"><span class="ln">4</span><span class="code">+    """Retry on schema_drift verify failures."""</span></div>
+<div class="diff-line add"><span class="ln">5</span><span class="code">+</span></div>
+<div class="diff-line add"><span class="ln">6</span><span class="code">+    MAX_VERIFY_RETRIES = 5  # up from 3</span></div>
+<div class="diff-line add"><span class="ln">7</span><span class="code">+</span></div>
+<div class="diff-line add"><span class="ln">8</span><span class="code">+    def should_loop_back_to_act(self, verify):</span></div>
+<div class="diff-line add"><span class="ln">9</span><span class="code">+        if not verify["tests_pass"]:</span></div>
+<div class="diff-line add"><span class="ln">10</span><span class="code">+            for f in verify["tests_failed"]:</span></div>
+<div class="diff-line add"><span class="ln">11</span><span class="code">+                if "schema_drift" in f:</span></div>
+<div class="diff-line add"><span class="ln">12</span><span class="code">+                    return True</span></div>
+<div class="diff-line add"><span class="ln">13</span><span class="code">+        return super().should_loop_back(</span></div>
+<div class="diff-line add"><span class="ln">14</span><span class="code">+            verify</span></div>
+<div class="diff-line add"><span class="ln">15</span><span class="code">+        )</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ STATUS BAR ═══ -->
+<div class="statusbar">
+  <span class="st-live"><span class="dot"></span> SSE connected</span>
+  <span>2 branches</span>
+  <span>ckpt: a8f3…2e1b</span>
+  <span>thread: demo-2026-04-25</span>
+  <span style="margin-left: auto;">meta-harness v0.1.0</span>
+</div>
+
+</body>
+</html>

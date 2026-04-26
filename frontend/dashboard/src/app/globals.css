@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --color-void: #0c0c12;
+  --color-panel: #111118;
+  --color-header: #16161e;
+  --color-hover: #1c1c26;
+  --color-active: #222230;
+  --color-border: #22222e;
+  --color-border-active: #32323e;
+  --color-text-hi: #c8c8d0;
+  --color-text-mid: #707084;
+  --color-text-lo: #4e4e5c;
+  --color-text-ghost: #303040;
+  --color-cyan: #7ab8ad;
+  --color-green: #6a9e78;
+  --color-red: #b06068;
+  --color-amber: #b09868;
+  --color-purple: #8878a8;
+  --color-blue: #7090b0;
+  --color-green-bg: #111816;
+  --color-red-bg: #181114;
+  --color-purple-bg: #141218;
+  --color-cyan-bg: #111616;
+}
+
+html, body {
+  background: var(--color-panel);
+  color: var(--color-text-hi);
+  font-family: var(--font-mono);
+  height: 100%;
+  overflow: hidden;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-active) transparent;
+}
