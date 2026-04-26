@@ -61,7 +61,7 @@ meta-harness/                                              # Repo root (uv works
 │   │       └── events.py                                  # GET /runs/{id}/stream (SSE)
 │   └── tests/                                             # pytest suite: test_outer/inner/proposer/tools/sandbox/frontier/memory/branches
 │
-├── frontend/                                              # Next.js 15 dashboard (localhost:3000)
+├── frontend/                                              # Next.js 16 dashboard (localhost:3000)
 │   ├── package.json
 │   ├── next.config.js
 │   ├── tsconfig.json

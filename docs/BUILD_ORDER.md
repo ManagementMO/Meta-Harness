@@ -265,7 +265,7 @@ memory.py, events.py}`, `backend/tests/test_api.py`,
 
 ## (11) Frontend dashboard + visualizations
 
-**Goal.** Next.js 15 dashboard at `localhost:3000`; the run-detail
+**Goal.** Next.js 16 dashboard at `localhost:3000`; the run-detail
 page renders ReactFlow outer-state-graph, D3 trajectory tree, Monaco
 unified-diff viewer, score+frontier chart, memory panel, and a
 right-click → fork modal. All five views update live via SSE.
