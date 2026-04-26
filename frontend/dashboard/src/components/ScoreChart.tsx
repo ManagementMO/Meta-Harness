@@ -90,8 +90,9 @@ export function ScoreChart() {
   return (
     <svg
       viewBox={`0 0 ${width} ${totalHeight}`}
-      className="w-full h-full"
-      preserveAspectRatio="xMidYMid meet"
+      className="w-full"
+      preserveAspectRatio="xMidYMin meet"
+      style={{ maxHeight: '100%' }}
     >
       {/* ── Main Chart ── */}
 

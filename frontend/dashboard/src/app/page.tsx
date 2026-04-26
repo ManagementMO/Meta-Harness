@@ -1,4 +1,209 @@
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
+
+const TITLE = 'META-HARNESS';
+const SUBTITLE = 'autonomous agent evolution monitor';
+const GRID_LINES_H = 12;
+const GRID_LINES_V = 20;
+
+function GridBackground() {
+  return (
+    <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+      {Array.from({ length: GRID_LINES_H }).map((_, i) => {
+        const y = ((i + 1) / (GRID_LINES_H + 1)) * 100;
+        return (
+          <motion.line
+            key={`h-${i}`}
+            x1="0%"
+            y1={`${y}%`}
+            x2="100%"
+            y2={`${y}%`}
+            stroke="#22222e"
+            strokeWidth={0.5}
+            initial={{ pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 1 }}
+            transition={{ duration: 1.8, delay: 0.05 * i, ease: 'easeOut' }}
+          />
+        );
+      })}
+      {Array.from({ length: GRID_LINES_V }).map((_, i) => {
+        const x = ((i + 1) / (GRID_LINES_V + 1)) * 100;
+        return (
+          <motion.line
+            key={`v-${i}`}
+            x1={`${x}%`}
+            y1="0%"
+            x2={`${x}%`}
+            y2="100%"
+            stroke="#22222e"
+            strokeWidth={0.5}
+            initial={{ pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 1 }}
+            transition={{ duration: 1.8, delay: 0.05 * i + 0.3, ease: 'easeOut' }}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function TypingTitle({ onComplete }: { onComplete: () => void }) {
+  const [charCount, setCharCount] = useState(0);
+  const [showCursor, setShowCursor] = useState(true);
+
+  const stableOnComplete = useCallback(onComplete, [onComplete]);
+
+  useEffect(() => {
+    if (charCount < TITLE.length) {
+      const timeout = setTimeout(() => setCharCount(c => c + 1), 90 + Math.random() * 60);
+      return () => clearTimeout(timeout);
+    } else {
+      const timeout = setTimeout(stableOnComplete, 400);
+      return () => clearTimeout(timeout);
+    }
+  }, [charCount, stableOnComplete]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setShowCursor(c => !c), 530);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex items-center justify-center">
+      <h1 className="text-[clamp(2rem,6vw,4.5rem)] font-bold tracking-[0.3em] text-text-hi">
+        {TITLE.slice(0, charCount).split('').map((char, i) => (
+          <motion.span
+            key={i}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{ display: 'inline-block' }}
+          >
+            {char === '-' ? '‐' : char}
+          </motion.span>
+        ))}
+        <span
+          className="inline-block w-[0.5ch] h-[1em] bg-cyan ml-1 align-middle"
+          style={{ opacity: showCursor ? 1 : 0 }}
+        />
+      </h1>
+    </div>
+  );
+}
+
+function Scanline() {
+  return (
+    <motion.div
+      className="absolute left-0 right-0 h-[2px] pointer-events-none"
+      style={{
+        background: 'linear-gradient(90deg, transparent, rgba(122,184,173,0.15), transparent)',
+        boxShadow: '0 0 20px rgba(122,184,173,0.08)',
+      }}
+      initial={{ top: '-2px' }}
+      animate={{ top: '100%' }}
+      transition={{ duration: 3, repeat: Infinity, repeatDelay: 4, ease: 'linear' }}
+    />
+  );
+}
+
+function StatusReadout({ visible }: { visible: boolean }) {
+  const lines = [
+    { label: 'SYS', value: 'online', color: 'text-green' },
+    { label: 'VER', value: 'v0.1.0', color: 'text-text-mid' },
+    { label: 'ENV', value: 'relay-hackathon', color: 'text-amber' },
+  ];
+
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          className="absolute bottom-8 left-8 flex flex-col gap-1"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+        >
+          {lines.map((line, i) => (
+            <motion.div
+              key={line.label}
+              className="flex items-center gap-2 text-[10px]"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.3, delay: 0.3 + i * 0.15 }}
+            >
+              <span className="text-text-ghost">{line.label}</span>
+              <span className="text-text-ghost">&mdash;</span>
+              <span className={line.color}>{line.value}</span>
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function Home() {
-  redirect('/runs/demo-2026-04-25');
+  const router = useRouter();
+  const [phase, setPhase] = useState<'typing' | 'ready'>('typing');
+  const [entering, setEntering] = useState(false);
+
+  const handleEnter = () => {
+    setEntering(true);
+    setTimeout(() => router.push('/runs/demo-2026-04-25'), 600);
+  };
+
+  return (
+    <div className="relative h-full w-full bg-void overflow-hidden flex items-center justify-center">
+      <GridBackground />
+      <Scanline />
+
+      <div className="relative z-10 flex flex-col items-center gap-8">
+        <TypingTitle onComplete={() => setPhase('ready')} />
+
+        <AnimatePresence>
+          {phase === 'ready' && (
+            <motion.p
+              className="text-text-mid text-[11px] tracking-[0.25em] uppercase"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+            >
+              {SUBTITLE}
+            </motion.p>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {phase === 'ready' && (
+            <motion.button
+              onClick={handleEnter}
+              className="mt-4 px-8 py-3 border border-border-active rounded text-[11px] font-semibold tracking-[0.2em] uppercase text-cyan hover:bg-hover hover:border-cyan transition-colors cursor-pointer"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Enter Dashboard &rarr;
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <StatusReadout visible={phase === 'ready'} />
+
+      <AnimatePresence>
+        {entering && (
+          <motion.div
+            className="absolute inset-0 bg-void z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5 }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
