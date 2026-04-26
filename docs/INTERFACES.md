@@ -591,10 +591,15 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 
 | Method | Path | Request | Response | Status |
 |---|---|---|---|---|
-| `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25"}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "current_iteration": 0}` | **201** |
+| `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25", "proposer": "claude", "mock_bench": false, "trials": 5, "workers": 3}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "current_iteration": 0}` | **201** |
 | `GET`  | `/runs` | — | `{"runs": [{"run_id", "thread_id", "status", "started_at", "current_iteration", "best_score"}]}` | 200 |
 | `GET`  | `/runs/{run_id}` | — | full `RunInfo` (run dir manifest + frontier_val + last few summary rows) | 200 |
 | `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to all branches via `branch_registry`) | 200 |
+
+`proposer`, `mock_bench`, `trials`, and `workers` are backend run-control
+fields used by the CLI-equivalent API path and smoke tests. Omitted
+values preserve the real proposer path: `proposer="claude"`,
+`mock_bench=false`, `trials=5`, `workers=3`.
 
 ### 6.2 Checkpoints (`api/checkpoints.py`)
 
@@ -607,20 +612,35 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 
 | Method | Path | Request | Response | Status |
 |---|---|---|---|---|
-| `POST` | `/runs/{run_id}/fork` | `{"parent_checkpoint_id": "<id>", "mods": {"proposer_prior": "<new prior>"}}` | `{"thread_id": "<run-id>.fork.<8hex>", "status": "running", "parent_checkpoint_id": "<id>"}` | 202 |
-| `POST` | `/runs/{run_id}/branches/{thread_id}/cancel` | — | `{"status": "cancelled"}` (calls `task.cancel()`; writes "cancelled" status to last checkpoint) | 200 |
+| `POST` | `/runs/{run_id}/fork` | `{"parent_checkpoint_id": "<id>", "mods": {"proposer_prior": "<new prior>"}, "parent_thread_id": "<optional>", "name": "<optional>"}` | `{"thread_id": "<run-id>.fork.<8hex>", "status": "running", "parent_checkpoint_id": "<id>", "branch_id": "<8hex>"}` | 202 |
 
-### 6.4 Memory (`api/memory.py`)
+`parent_thread_id` defaults to `run_id`, which preserves the original
+fork-from-root behavior. Supplying it allows a future dashboard to fork
+from an existing branch thread without changing the route shape.
+
+### 6.4 Branches (`api/branches.py`)
 
 | Method | Path | Request | Response | Status |
 |---|---|---|---|---|
-| `GET` | `/memory/{namespace}` | — (query: `?limit=50`) | `{"namespace": ["learned_patterns","coding"], "entries": [{"key", "value", "score_delta", "evidence_run_ids"}]}` | 200 |
-| `POST` | `/memory/{namespace}/search` | `{"query": "schema drift retry", "limit": 5}` | `{"results": [...]}` | 200 |
+| `GET` | `/runs/{run_id}/branches` | — | `{"branches": [<BranchMetadata>]}` | 200 |
+| `GET` | `/runs/{run_id}/trajectory` | — | `{"trajectory": {"run_id", "threads", "edges"}}` | 200 |
+| `POST` | `/runs/{run_id}/branches/{thread_id}/cancel` | — | `{"status": "cancelled"}` (calls `task.cancel()` through Step 9 branch metadata) | 200 |
+
+### 6.5 Memory (`api/memory.py`)
+
+| Method | Path | Request | Response | Status |
+|---|---|---|---|---|
+| `GET` | `/memory/{namespace}` | — (query: `?limit=50`) | `{"namespace": ["learned_patterns","coding"], "entries": [{"key", "value", "score_delta", "evidence_run_ids"}], "implemented": false}` | 200 |
+| `POST` | `/memory/{namespace}/search` | `{"query": "schema drift retry", "limit": 5}` | `{"results": [...], "implemented": false}` | 200 |
 
 `namespace` is URL-encoded; the conventional shape is
 `("learned_patterns", "<domain>")`.
 
-### 6.5 Events / SSE (`api/events.py`)
+Until Step 8 lands, the backend returns empty memory result sets with
+`implemented=false`; callers must treat that as a valid placeholder, not
+an error.
+
+### 6.6 Events / SSE (`api/events.py`)
 
 | Method | Path | Response |
 |---|---|---|
