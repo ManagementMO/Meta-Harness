@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -220,7 +220,7 @@ __marimo__/
 # === Meta-Harness project-specific ===
 
 # Per-run outputs (filesystem traces, candidate harnesses, proposer sessions)
-runs/
+/runs/
 
 # Frontend (Next.js)
 frontend/node_modules/

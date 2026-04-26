@@ -348,7 +348,12 @@ def loop(
     holdout: bool = typer.Option(
         False,
         "--holdout",
-        help="Use eval/holdout/ instead of eval/tasks/",
+        help=(
+            "After the main loop completes, post-evaluate the best "
+            "candidate against eval/holdout/ and write holdout-result.json. "
+            "The proposer never sees holdout tasks (honest reporting per "
+            "Appendix C §C.14). No-op when --mock-bench is set."
+        ),
     ),
     persistent: bool = typer.Option(
         True,
@@ -383,7 +388,10 @@ def loop(
         run_name = "loop-" + _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     run_dir = make_run_dir(REPO_ROOT, run_name, fresh=fresh)
-    eval_tasks_dir = REPO_ROOT / "eval" / ("holdout" if holdout else "tasks")
+    # Search always runs on eval/tasks/. Holdout post-eval (if --holdout
+    # is set) runs after the main loop completes, on eval/holdout/ — the
+    # proposer never sees holdout tasks (Appendix C §C.14).
+    eval_tasks_dir = REPO_ROOT / "eval" / "tasks"
 
     skill_path: Path | None = None
     if proposer == "claude":
@@ -445,6 +453,19 @@ def loop(
 
     final_state = asyncio.run(_run())
 
+    # Post-eval on holdout set (if requested and meaningful).
+    holdout_result: dict[str, Any] | None = None
+    if holdout and not mock_bench and final_state.get("best_candidate"):
+        holdout_result = asyncio.run(
+            _run_holdout_eval(
+                run_dir=run_dir,
+                repo_root=REPO_ROOT,
+                best_candidate=final_state["best_candidate"],
+                trials=trials,
+                workers=workers,
+            )
+        )
+
     typer.echo(
         json.dumps(
             {
@@ -455,6 +476,291 @@ def loop(
                 "n_candidates": len(final_state.get("candidates") or []),
                 "frontier": final_state.get("frontier"),
                 "persistent": persistent,
+                "holdout": holdout_result,
+            },
+            indent=2,
+        )
+    )
+
+
+async def _run_holdout_eval(
+    *,
+    run_dir: Path,
+    repo_root: Path,
+    best_candidate: str,
+    trials: int,
+    workers: int,
+) -> dict[str, Any]:
+    """Post-evaluate the best candidate on eval/holdout/. Writes
+    runs/<run-name>/holdout-result.json with per-task pass rates and
+    overall accuracy. The proposer never saw these tasks during search,
+    so this is the honest-reporting number (Appendix C §C.14)."""
+    import asyncio
+    import datetime as _dt
+    import importlib
+
+    from app.meta_harness.harness import CodingAgentHarness
+    from app.meta_harness.inner import run_inner_loop
+    from app.meta_harness.sandbox import sandbox_for
+
+    holdout_dir = repo_root / "eval" / "holdout"
+    if not holdout_dir.exists():
+        return {
+            "candidate": best_candidate,
+            "skipped": True,
+            "reason": "eval/holdout/ does not exist",
+        }
+    task_dirs = sorted(
+        d for d in holdout_dir.iterdir() if d.is_dir() and (d / "task.json").exists()
+    )
+    if not task_dirs:
+        return {
+            "candidate": best_candidate,
+            "skipped": True,
+            "reason": "no holdout tasks found",
+        }
+
+    if best_candidate == "baseline":
+        from agents.baseline import BaselineHarness
+
+        harness_class: type[CodingAgentHarness] = BaselineHarness
+    else:
+        try:
+            mod = importlib.import_module(f"agents.{best_candidate}")
+        except ImportError as exc:
+            return {
+                "candidate": best_candidate,
+                "skipped": True,
+                "reason": f"import failed: {exc}",
+            }
+        cls = _find_harness_class(mod)
+        if cls is None:
+            return {
+                "candidate": best_candidate,
+                "skipped": True,
+                "reason": "no CodingAgentHarness subclass found",
+            }
+        harness_class = cls
+
+    sem = asyncio.Semaphore(workers)
+    work = [
+        (td, json.loads((td / "task.json").read_text()), t)
+        for td in task_dirs
+        for t in range(1, trials + 1)
+    ]
+    results: dict[str, list[bool]] = {td.name: [False] * trials for td in task_dirs}
+
+    async def _one(td: Path, spec: dict, trial_idx: int) -> tuple[str, int, bool]:
+        async with sem:
+            harness = harness_class()
+            trace_dir = (
+                run_dir
+                / "candidates"
+                / best_candidate
+                / "holdout-traces"
+                / f"{td.name}-trial-{trial_idx}"
+            )
+            with sandbox_for(td / "workspace") as sandbox:
+                final = await run_inner_loop(
+                    harness,
+                    task_dict=spec,
+                    workspace=sandbox,
+                    trace_dir=trace_dir,
+                    thread_id=f"holdout-{best_candidate}-{td.name}-trial-{trial_idx}",
+                )
+        return td.name, trial_idx, (final.get("score") or 0.0) >= 1.0
+
+    started = _dt.datetime.now(_dt.timezone.utc)
+    trial_results = await asyncio.gather(
+        *[_one(td, spec, t) for td, spec, t in work]
+    )
+    for task_id, trial_idx, passed in trial_results:
+        results[task_id][trial_idx - 1] = passed
+
+    per_task = {
+        task_id: {
+            "pass_rate": round(sum(ts) / len(ts), 4),
+            "trials": ts,
+        }
+        for task_id, ts in results.items()
+    }
+    total_passes = sum(sum(ts) for ts in results.values())
+    n_total = len(task_dirs) * trials
+    accuracy = total_passes / n_total if n_total else 0.0
+    elapsed = (_dt.datetime.now(_dt.timezone.utc) - started).total_seconds()
+
+    holdout_result = {
+        "candidate": best_candidate,
+        "n_holdout_tasks": len(task_dirs),
+        "n_trials_per_task": trials,
+        "accuracy": round(accuracy, 4),
+        "per_task": per_task,
+        "wall_time_s": round(elapsed, 2),
+        "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
+    (run_dir / "holdout-result.json").write_text(
+        json.dumps(holdout_result, indent=2)
+    )
+    return holdout_result
+
+
+@app.command()
+def fork(
+    run_name: str = typer.Argument(..., help="Run name to fork from (under runs/)"),
+    checkpoint: str = typer.Option(
+        ...,
+        "--checkpoint",
+        help="Parent checkpoint id (from `meta-harness checkpoints` or the API)",
+    ),
+    mod: list[str] = typer.Option(
+        [],
+        "--mod",
+        help="State mod to apply at the fork point: KEY=VALUE (repeatable)",
+    ),
+    branch_name: str = typer.Option(
+        None,
+        "--name",
+        help="Optional human-readable label for the branch",
+    ),
+    detach: bool = typer.Option(
+        False,
+        "--detach",
+        help="Don't wait for the branch to finish; return metadata immediately",
+    ),
+) -> None:
+    """Fork a run from a checkpoint into a concurrent branch (Appendix A).
+
+    Reads runs/<run-name>/manifest.json to recover the original run config,
+    opens the same Postgres checkpointer, calls ``branches.worktree_add``,
+    and (unless ``--detach``) awaits the branch to completion.
+    """
+    import asyncio
+
+    from app.meta_harness.branches import worktree_add
+    from app.meta_harness.outer import OuterLoopRunner
+    from app.meta_harness.persistence import persistence_layer
+
+    run_dir = REPO_ROOT / "runs" / run_name
+    if not run_dir.exists():
+        typer.echo(f"run not found: {run_dir}", err=True)
+        raise typer.Exit(1)
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        typer.echo(f"manifest.json missing in {run_dir}; cannot fork", err=True)
+        raise typer.Exit(1)
+    manifest = json.loads(manifest_path.read_text())
+
+    mods: dict[str, Any] = {}
+    for raw in mod:
+        if "=" not in raw:
+            typer.echo(f"--mod must be KEY=VALUE; got {raw!r}", err=True)
+            raise typer.Exit(2)
+        k, _, v = raw.partition("=")
+        mods[k.strip()] = v
+
+    eval_tasks_dir = REPO_ROOT / "eval" / "tasks"
+    skill_path = REPO_ROOT / "skills" / "meta-harness-coding-agent" / "SKILL.md"
+    skill_path = skill_path if skill_path.exists() else None
+
+    async def _run() -> dict[str, Any]:
+        async with persistence_layer() as saver:
+            runner = OuterLoopRunner(
+                run_dir=run_dir,
+                repo_root=REPO_ROOT,
+                eval_tasks_dir=eval_tasks_dir,
+                mock_proposer=manifest.get("mock_proposer", False),
+                mock_bench=manifest.get("mock_bench", False),
+                trials=manifest.get("trials", 5),
+                bench_workers=manifest.get("workers", 3),
+                skill_path=skill_path,
+                checkpointer=saver,
+            )
+            graph = runner.build()
+            metadata, task = await worktree_add(
+                graph,
+                run_id=run_name,
+                parent_thread_id=run_name,
+                parent_checkpoint_id=checkpoint,
+                mods=mods,
+                name=branch_name,
+            )
+            if not detach:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            return metadata.to_dict()
+
+    metadata = asyncio.run(_run())
+    typer.echo(json.dumps(metadata, indent=2, default=str))
+
+
+@app.command()
+def init(
+    domain: str = typer.Argument(..., help="Domain name, e.g. 'coding-agent'"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite skills/meta-harness-<domain>/ if it already exists",
+    ),
+) -> None:
+    """Scaffold a new domain: skills/meta-harness-<domain>/SKILL.md.
+
+    If a coding-agent skill exists at skills/meta-harness-coding-agent/SKILL.md,
+    use it as a template; otherwise generate a minimal SKILL.md. Prints
+    next-step guidance.
+    """
+    target = REPO_ROOT / "skills" / f"meta-harness-{domain}"
+    skill_file = target / "SKILL.md"
+    if skill_file.exists() and not force:
+        typer.echo(
+            f"{skill_file} already exists. Pass --force to overwrite.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    target.mkdir(parents=True, exist_ok=True)
+
+    template = REPO_ROOT / "skills" / "meta-harness-coding-agent" / "SKILL.md"
+    if template.exists() and template != skill_file:
+        content = template.read_text()
+        content = content.replace(
+            "meta-harness-coding-agent", f"meta-harness-{domain}", 1
+        )
+        skill_file.write_text(content)
+    else:
+        skill_file.write_text(
+            f"""---
+name: meta-harness-{domain}
+description: Evolve the {domain} harness. Read past traces, form one falsifiable hypothesis, write ONE new candidate, register in pending_eval.json.
+---
+
+# Meta-Harness {domain.title()} Evolution
+
+You are evolving the source code of a harness. Read the run's
+``evolution_summary.jsonl`` and ``frontier_val.json``, then form
+ONE falsifiable hypothesis and write ONE new candidate file.
+
+## Workflow
+
+1. **Analyze** — read prior candidates' source + traces (~10 files).
+2. **Pick** — one hypothesis with the highest expected delta.
+3. **Prototype** — exercise the mechanism in /tmp/ first.
+4. **Implement** — copy parent → ``agents/<name>.py``, apply targeted
+   change, add a self-critique block at the top.
+5. **Register** — write ``pending_eval.json`` with the candidate metadata.
+"""
+        )
+
+    typer.echo(
+        json.dumps(
+            {
+                "domain": domain,
+                "skill_path": str(skill_file),
+                "next_steps": [
+                    f"Edit {skill_file} to customize the workflow.",
+                    f"Add eval tasks in eval/tasks/ if this is a new domain.",
+                    f"meta-harness loop --domain {domain} --proposer mock --mock-bench --budget 2 --fresh",
+                ],
             },
             indent=2,
         )

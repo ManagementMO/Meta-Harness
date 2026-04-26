@@ -1,0 +1,9 @@
+{
+  "id": "task-006-fix-recursion",
+  "tier": "bug-fix",
+  "instruction": "factorial.py has a broken recursion: `factorial(n)` never reaches a base case and loops forever (or stack-overflows). Fix it so factorial(0)=1, factorial(1)=1, factorial(5)=120, etc. Do not modify the function signature. All tests in tests/test_factorial.py must pass.",
+  "test_command": "pytest tests/test_factorial.py -q",
+  "expected_files_changed": ["factorial.py"],
+  "baseline_pass_rate": 0.65,
+  "best_known_pass_rate": 0.95
+}

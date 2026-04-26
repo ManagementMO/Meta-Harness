@@ -1,0 +1,207 @@
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useReducer,
+  type Dispatch,
+  type ReactNode,
+} from "react";
+import { createElement } from "react";
+import type {
+  DashboardAction,
+  DashboardState,
+  ForkEvent,
+  IterationChapter,
+  LogEntry,
+  TreeNode,
+} from "./types";
+
+const initialTree: TreeNode[] = [
+  {
+    candidate: "baseline",
+    parent_candidate_name: null,
+    iteration: 0,
+    status: "seed",
+    scores: { accuracy: 0.62 },
+    hypothesis: "starting harness",
+    axis: "exploration",
+    delta: 0,
+  },
+  {
+    candidate: "retry-on-schema-drift",
+    parent_candidate_name: "baseline",
+    iteration: 1,
+    status: "accepted",
+    scores: { accuracy: 0.7 },
+    hypothesis: "retry on schema_drift errors",
+    axis: "exploitation",
+    delta: 0.08,
+  },
+  {
+    candidate: "tighter-tool-hashing",
+    parent_candidate_name: "retry-on-schema-drift",
+    iteration: 2,
+    status: "rejected",
+    scores: { accuracy: 0.66 },
+    hypothesis: "stricter tool-description hashing",
+    axis: "exploration",
+    delta: -0.04,
+  },
+  {
+    candidate: "early-exit-on-auth",
+    parent_candidate_name: "retry-on-schema-drift",
+    iteration: 3,
+    status: "accepted",
+    scores: { accuracy: 0.74 },
+    hypothesis: "early-exit on auth failures",
+    axis: "exploitation",
+    delta: 0.04,
+  },
+  {
+    candidate: "more-specific-descriptions",
+    parent_candidate_name: "early-exit-on-auth",
+    iteration: 4,
+    status: "best",
+    scores: { accuracy: 0.8 },
+    hypothesis: "more specific tool descriptions",
+    axis: "exploitation",
+    delta: 0.06,
+  },
+  {
+    candidate: "rewrite-tool-descriptions-with-examples",
+    parent_candidate_name: "retry-on-schema-drift",
+    iteration: 2,
+    status: "accepted",
+    scores: { accuracy: 0.78 },
+    hypothesis: "rewrite tool descriptions w/ examples",
+    axis: "exploration",
+    delta: 0.16,
+    isForkBranch: true,
+    threadId: "demo.fork.abc12345",
+  },
+  {
+    candidate: "few-shot-demos-on-descriptions",
+    parent_candidate_name: "rewrite-tool-descriptions-with-examples",
+    iteration: 3,
+    status: "best",
+    scores: { accuracy: 0.85 },
+    hypothesis: "add few-shot demos to descriptions",
+    axis: "exploitation",
+    delta: 0.07,
+    isForkBranch: true,
+    threadId: "demo.fork.abc12345",
+  },
+];
+
+const initialIterations: IterationChapter[] = [
+  { iteration: 1, candidateName: "retry-on-schema-drift", status: "accepted", phases: { propose: true, validate: true, benchmark: true, frontier: true }, hypothesis: "retry on schema_drift errors" },
+  { iteration: 2, candidateName: "tighter-tool-hashing", status: "rejected", phases: { propose: true, validate: true, benchmark: true, frontier: false }, hypothesis: "stricter tool-description hashing" },
+  { iteration: 3, candidateName: "early-exit-on-auth", status: "accepted", phases: { propose: true, validate: true, benchmark: true, frontier: true }, hypothesis: "early-exit on auth failures" },
+  { iteration: 4, candidateName: "more-specific-descriptions", status: "best", phases: { propose: true, validate: true, benchmark: true, frontier: true }, hypothesis: "more specific tool descriptions" },
+];
+
+const initialLogEntries: LogEntry[] = [
+  { id: "log-1", timestamp: "14:32:11", tag: "orient", text: "read 8 files in workspace", candidateName: "more-specific-descriptions" },
+  { id: "log-2", timestamp: "14:32:14", tag: "plan", text: "submit_plan: rewrite tool descriptions to be more specific", candidateName: "more-specific-descriptions" },
+  { id: "log-3", timestamp: "14:32:18", tag: "tool/read", text: "agents/early-exit-on-auth.py", candidateName: "more-specific-descriptions" },
+  { id: "log-4", timestamp: "14:32:24", tag: "tool/patch", text: "applied patch to agents/more-specific-descriptions.py", candidateName: "more-specific-descriptions" },
+  { id: "log-5", timestamp: "14:32:42", tag: "verify", text: "5 tests passed in 0.04s", candidateName: "more-specific-descriptions" },
+  { id: "log-6", timestamp: "14:32:43", tag: "score", text: "accuracy=0.80 (+0.06) NEW BEST", candidateName: "more-specific-descriptions" },
+];
+
+const initialState: DashboardState = {
+  run: {
+    runId: "demo-2026-04-25",
+    threadId: "demo-2026-04-25",
+    branches: 2,
+    checkpointId: "ckpt_4af9e21c",
+    bestScore: 0.85,
+    status: "running",
+    iteration: 4,
+  },
+  tree: initialTree,
+  iterations: initialIterations,
+  logEntries: initialLogEntries,
+  forkEvents: [
+    {
+      timestamp: "14:31:08",
+      parentCandidate: "retry-on-schema-drift",
+      checkpointId: "ckpt_2c81ef03",
+      prior: "explore example-driven prompts instead of hash-based dedup",
+      branchId: "fork.abc12345",
+      rationale: "iteration 2's hash-strictness regressed; try the orthogonal direction",
+    },
+  ],
+  filters: { activeFilter: "all", searchQuery: "" },
+  contextTab: "chart",
+  selectedNode: "more-specific-descriptions",
+  selectedLogLine: null,
+  sseConnected: false,
+};
+
+function reducer(state: DashboardState, action: DashboardAction): DashboardState {
+  switch (action.type) {
+    case "SET_RUN":
+      return { ...state, run: action.payload };
+    case "SET_TREE":
+      return { ...state, tree: action.payload };
+    case "ADD_TREE_NODE": {
+      const without = state.tree.filter(n => n.candidate !== action.payload.candidate);
+      return { ...state, tree: [...without, action.payload] };
+    }
+    case "SET_ITERATIONS":
+      return { ...state, iterations: action.payload };
+    case "ADD_LOG_ENTRY":
+      return { ...state, logEntries: [...state.logEntries, action.payload] };
+    case "SET_LOG_ENTRIES":
+      return { ...state, logEntries: action.payload };
+    case "ADD_FORK_EVENT":
+      return { ...state, forkEvents: [...state.forkEvents, action.payload] };
+    case "SET_FILTER":
+      return { ...state, filters: { ...state.filters, ...action.payload } };
+    case "SET_CONTEXT_TAB":
+      return { ...state, contextTab: action.payload };
+    case "SELECT_NODE":
+      return { ...state, selectedNode: action.payload };
+    case "SELECT_LOG_LINE":
+      return { ...state, selectedLogLine: action.payload };
+    case "SET_SSE_CONNECTED":
+      return { ...state, sseConnected: action.payload };
+    default:
+      return state;
+  }
+}
+
+const StateContext = createContext<DashboardState | undefined>(undefined);
+const DispatchContext = createContext<Dispatch<DashboardAction> | undefined>(undefined);
+
+export function DashboardProvider({
+  children,
+  initial,
+}: {
+  children: ReactNode;
+  initial?: Partial<DashboardState>;
+}) {
+  const [state, dispatch] = useReducer(reducer, { ...initialState, ...initial });
+  return createElement(
+    StateContext.Provider,
+    { value: state },
+    createElement(DispatchContext.Provider, { value: dispatch }, children),
+  );
+}
+
+export function useDashboard(): DashboardState {
+  const ctx = useContext(StateContext);
+  if (!ctx) throw new Error("useDashboard must be used inside <DashboardProvider />");
+  return ctx;
+}
+
+export function useDashboardDispatch(): Dispatch<DashboardAction> {
+  const ctx = useContext(DispatchContext);
+  if (!ctx) throw new Error("useDashboardDispatch must be used inside <DashboardProvider />");
+  return ctx;
+}
+
+export { initialState };
+export type { DashboardState, DashboardAction } from "./types";
