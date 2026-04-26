@@ -21,7 +21,7 @@ const TAG_COLORS: Record<LogTag, string> = {
 };
 
 export function DecisionLog() {
-  const { iterations, logEntries, forkEvents, filters, selectedLogLine } = useDashboard();
+  const { iterations, logEntries, forkEvents, filters, selectedLogLine, run } = useDashboard();
   const dispatch = useDashboardDispatch();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -80,6 +80,16 @@ export function DecisionLog() {
       </div>
 
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-5">
+        {iterations.length === 0 && logEntries.length === 0 && forkEvents.length === 0 && (
+          <div className="rounded border border-border bg-header/70 px-4 py-4 mb-4">
+            <div className="text-[10px] uppercase tracking-wide text-text-mid">Awaiting first candidate</div>
+            <div className="text-[11px] text-text-hi mt-1">
+              {run?.status === 'running'
+                ? 'Real benchmark run is warming up (proposer + first benchmark pass). Logs will stream in once iteration 1 begins.'
+                : 'No streamed decision events yet for this run.'}
+            </div>
+          </div>
+        )}
         {forkEvents.length > 0 && (
           <div className="mb-3 flex items-center gap-2">
             <span className="text-purple text-[10px] font-semibold uppercase tracking-wide">Fork timeline</span>
@@ -93,7 +103,7 @@ export function DecisionLog() {
         {iterations.map(chapter => {
           const chapterEntries = filteredEntries.filter(e => e.candidateName === chapter.candidateName);
           return (
-            <div key={chapter.candidateName} className="mb-4">
+            <div key={chapter.candidateName} className="mb-4 animate-fade-in-slow">
               <div className={`border-l-2 ${chapter.isForkBranch ? 'border-purple' : 'border-border-active'} pl-3 py-2 mb-2`}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-[10px] font-semibold ${chapter.isForkBranch ? 'text-purple' : 'text-text-hi'}`}>
@@ -114,7 +124,7 @@ export function DecisionLog() {
 
               <div className="flex flex-col gap-[8px]">
                 {chapterEntries.map(entry => (
-                  <div key={entry.id}>
+                  <div key={entry.id} className="animate-fade-in-slow">
                     <div
                       className={`flex items-start gap-2 cursor-pointer group ${
                         selectedLogLine === entry.id ? 'border-l-2 border-cyan pl-1.5 -ml-1.5' : ''

@@ -64,7 +64,7 @@ export function subscribeToRun(
 import type { Dispatch } from "react";
 import { demoFixtureState } from "./state";
 import type { DashboardAction } from "./types";
-import type { TreeNode, LogEntry, ForkEvent, RunSummary } from "./types";
+import type { TreeNode, LogEntry, ForkEvent, RunSummary, IterationChapter } from "./types";
 
 type RunEventData = {
   candidate?: string;
@@ -110,6 +110,7 @@ function valueLabel(value: unknown): string | null {
 function candidateNodeFromEvent(data: RunEventData): TreeNode | null {
   if (typeof data.candidate !== "string") return null;
   const iterationValue = typeof data.iteration === "number" ? data.iteration : 0;
+  const threadId = valueLabel(data.thread_id) ?? undefined;
   return {
     candidate: data.candidate,
     parent_candidate_name: data.parent ?? null,
@@ -118,6 +119,8 @@ function candidateNodeFromEvent(data: RunEventData): TreeNode | null {
     status: "seed",
     scores: { accuracy: 0 },
     delta: null,
+    isForkBranch: threadId?.includes(".fork.") ?? false,
+    threadId,
   };
 }
 
@@ -133,6 +136,40 @@ function evalNodeFromEvent(data: RunEventData): TreeNode | null {
     scores: { accuracy, per_task: data.per_task },
     delta: null,
   };
+}
+
+function chapterStatusFromEvent(status: string | null): IterationChapter["status"] {
+  if (!status) return "running";
+  const normalized = status.toLowerCase();
+  if (normalized === "improved" || normalized === "accepted" || normalized === "best") {
+    return "accepted";
+  }
+  if (normalized === "rejected" || normalized === "regressed" || normalized === "failed") {
+    return "rejected";
+  }
+  return "running";
+}
+
+function addIterationChapter(
+  dispatch: Dispatch<DashboardAction>,
+  payload: {
+    iteration: number;
+    candidateName: string;
+    status: IterationChapter["status"];
+    hypothesis?: string;
+    phases: IterationChapter["phases"];
+  },
+) {
+  dispatch({
+    type: "ADD_ITERATION",
+    payload: {
+      iteration: payload.iteration,
+      candidateName: payload.candidateName,
+      status: payload.status,
+      phases: payload.phases,
+      hypothesis: payload.hypothesis,
+    },
+  });
 }
 
 function forkEventFromEvent(data: RunEventData): ForkEvent {
@@ -162,14 +199,38 @@ export function startSSE(
       const data = e.data as RunEventData;
       const checkpoint = valueLabel(data.checkpoint_id) ?? "unknown";
       const node = valueLabel(data.node) ?? "graph";
+      if (checkpoint !== "unknown" && node !== "graph") {
+        dispatch({
+          type: "SET_CHECKPOINT_ID",
+          payload: { candidate: node, checkpointId: checkpoint },
+        });
+      }
       dispatch({
         type: "ADD_LOG_ENTRY",
         payload: eventLogEntry(e, `checkpoint ${checkpoint} written at ${node}`, "memory"),
       });
     },
     "candidate-created": (e) => {
-      const node = candidateNodeFromEvent(e.data as RunEventData);
+      const data = e.data as RunEventData;
+      const node = candidateNodeFromEvent(data);
       if (node) dispatch({ type: "ADD_TREE_NODE", payload: node });
+      const candidate = valueLabel(data.candidate) ?? "candidate";
+      const iteration = typeof data.iteration === "number" ? data.iteration : 0;
+      addIterationChapter(dispatch, {
+        iteration,
+        candidateName: candidate,
+        status: "running",
+        phases: { propose: true, validate: false, benchmark: false, frontier: false },
+        hypothesis: "Proposing candidate update for benchmark tasks",
+      });
+      dispatch({
+        type: "ADD_LOG_ENTRY",
+        payload: eventLogEntry(
+          e,
+          `${candidate}: objective is to improve aggregate task pass rate`,
+          "plan",
+        ),
+      });
     },
     "validate-result": (e) => {
       const data = e.data as RunEventData;
@@ -185,8 +246,35 @@ export function startSSE(
       });
     },
     "eval-result": (e) => {
-      const node = evalNodeFromEvent(e.data as RunEventData);
+      const data = e.data as RunEventData;
+      const node = evalNodeFromEvent(data);
       if (node) dispatch({ type: "ADD_TREE_NODE", payload: node });
+      const candidate = valueLabel(data.candidate) ?? "candidate";
+      const iteration = typeof data.iteration === "number" ? data.iteration : 0;
+      addIterationChapter(dispatch, {
+        iteration,
+        candidateName: candidate,
+        status: "running",
+        phases: { propose: true, validate: true, benchmark: true, frontier: false },
+        hypothesis: `Benchmarking ${candidate} across eval tasks`,
+      });
+
+      if (data.per_task) {
+        const tasks = Object.entries(data.per_task)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(0, 6);
+        for (const [taskKey, taskValue] of tasks) {
+          const taskLabel = taskKey.replace(/^task-\d+-/, "");
+          dispatch({
+            type: "ADD_LOG_ENTRY",
+            payload: eventLogEntry(
+              e,
+              `task ${taskLabel}: ${(taskValue.pass_rate * 100).toFixed(0)}% pass rate`,
+              "score",
+            ),
+          });
+        }
+      }
     },
     "iteration-complete": (e) => {
       const data = e.data as RunEventData;
@@ -196,6 +284,17 @@ export function startSSE(
       }
       const iteration = valueLabel(data.iteration) ?? "?";
       const status = valueLabel(data.status) ?? "complete";
+      const iterationNumber = typeof data.iteration === "number" ? data.iteration : 0;
+      const candidate =
+        valueLabel(data.candidate) ??
+        (iterationNumber > 0 ? `_iter_${iterationNumber}` : "candidate");
+      addIterationChapter(dispatch, {
+        iteration: iterationNumber,
+        candidateName: candidate,
+        status: chapterStatusFromEvent(status),
+        phases: { propose: true, validate: true, benchmark: true, frontier: true },
+        hypothesis: `Iteration ${iteration} ${status}`,
+      });
       dispatch({
         type: "ADD_LOG_ENTRY",
         payload: eventLogEntry(e, `iteration ${iteration} ${status}`, "score"),

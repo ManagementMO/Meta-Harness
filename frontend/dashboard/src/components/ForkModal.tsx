@@ -1,18 +1,18 @@
 'use client';
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
-import { useDashboard, useDashboardDispatch } from '@/lib/state';
+import { useDashboardDispatch } from '@/lib/state';
 import { forkRun } from '@/lib/api';
 
 type ForkModalProps = {
   candidateName: string;
   checkpointId: string;
+  parentThreadId?: string;
   onClose: () => void;
 };
 
-export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalProps) {
+export function ForkModal({ candidateName, checkpointId, parentThreadId, onClose }: ForkModalProps) {
   const params = useParams<{ run_id: string }>();
-  const { mode } = useDashboard();
   const dispatch = useDashboardDispatch();
   const [prior, setPrior] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -25,26 +25,36 @@ export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalPro
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     let branchId = fallbackBranchId;
-    if (mode === 'live') {
-      try {
-        const result = await forkRun(params.run_id, {
-          parent_checkpoint_id: checkpointId,
-          mods: { proposer_prior: prior.trim() },
-          name: fallbackBranchId,
-        });
-        branchId = result.branch_id ?? fallbackBranchId;
-      } catch {
-        dispatch({
-          type: 'ADD_LOG_ENTRY',
-          payload: {
-            id: `fork-failed-${Date.now()}`,
-            timestamp,
-            tag: 'fork',
-            text: 'fork API unavailable; recording local fork intent',
-            candidateName,
-          },
-        });
-      }
+    try {
+      const result = await forkRun(params.run_id, {
+        parent_checkpoint_id: checkpointId,
+        parent_thread_id: parentThreadId,
+        mods: { proposer_prior: prior.trim() },
+        name: fallbackBranchId,
+      });
+      branchId = result.branch_id ?? fallbackBranchId;
+      dispatch({
+        type: 'ADD_LOG_ENTRY',
+        payload: {
+          id: `fork-started-${Date.now()}`,
+          timestamp,
+          tag: 'fork',
+          text: `fork ${branchId} launched from ${parentThreadId ?? params.run_id}@${checkpointId.slice(0, 8)}…`,
+          candidateName,
+          threadId: result.thread_id,
+        },
+      });
+    } catch {
+      dispatch({
+        type: 'ADD_LOG_ENTRY',
+        payload: {
+          id: `fork-failed-${Date.now()}`,
+          timestamp,
+          tag: 'fork',
+          text: `fork request failed for ${parentThreadId ?? params.run_id}@${checkpointId.slice(0, 8)}; recording local fork intent`,
+          candidateName,
+        },
+      });
     }
 
     dispatch({
@@ -55,7 +65,7 @@ export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalPro
         checkpointId,
         prior: prior.trim(),
         branchId,
-        rationale: 'Manual fork from dashboard',
+        rationale: 'Manual fork rerun from dashboard',
       },
     });
 

@@ -1,8 +1,10 @@
 'use client';
 import { useRef, useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import * as d3 from 'd3';
 import { useDashboard, useDashboardDispatch } from '@/lib/state';
 import { ForkModal } from './ForkModal';
+import { resolveCheckpointForNode } from '@/lib/api';
 import type { TreeNode } from '@/lib/types';
 
 const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }> = {
@@ -60,10 +62,27 @@ function layoutTree(nodes: TreeNode[]): LayoutNode[] {
 }
 
 export function TrajectoryTree() {
+  const params = useParams<{ run_id: string }>();
   const svgRef = useRef<SVGSVGElement>(null);
   const { tree, selectedNode, forkEvents } = useDashboard();
   const dispatch = useDashboardDispatch();
-  const [forkTarget, setForkTarget] = useState<{ candidate: string; checkpointId: string } | null>(null);
+  const [forkTarget, setForkTarget] = useState<{ candidate: string; checkpointId: string; parentThreadId?: string } | null>(null);
+
+  useEffect(() => {
+    const latestFork = forkEvents.at(-1);
+    if (!latestFork) return;
+    const rawBranchId = latestFork.branchId.trim();
+    const normalizedBranchId = rawBranchId.replace(/^fork\./, "");
+    const branchNode = tree.find((node) => {
+      const threadId = node.threadId ?? "";
+      return (
+        threadId.includes(`.fork.${normalizedBranchId}`) ||
+        threadId.includes(rawBranchId)
+      );
+    });
+    if (!branchNode || selectedNode === branchNode.candidate) return;
+    dispatch({ type: 'SELECT_NODE', payload: branchNode.candidate });
+  }, [tree, forkEvents, selectedNode, dispatch]);
 
   useEffect(() => {
     if (!svgRef.current || tree.length === 0) return;
@@ -162,10 +181,41 @@ export function TrajectoryTree() {
         .attr('cursor', 'pointer')
         .attr('data-testid', 'trajectory-node')
         .on('click', () => dispatch({ type: 'SELECT_NODE', payload: node.candidate }))
-        .on('contextmenu', (event: MouseEvent) => {
+        .on('contextmenu', async (event: MouseEvent) => {
           event.preventDefault();
-          const checkpointId = node.checkpointId || `demo-${node.candidate}`;
-          setForkTarget({ candidate: node.candidate, checkpointId });
+          let checkpointId = node.checkpointId;
+          if (!checkpointId) {
+            const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
+              candidate: node.candidate,
+              iteration: node.iteration,
+              threadId: node.threadId,
+            });
+            checkpointId = resolvedCheckpointId ?? undefined;
+            if (checkpointId) {
+              dispatch({
+                type: 'SET_CHECKPOINT_ID',
+                payload: { candidate: node.candidate, checkpointId },
+              });
+            }
+          }
+          if (!checkpointId) {
+            dispatch({
+              type: 'ADD_LOG_ENTRY',
+              payload: {
+                id: `fork-pending-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                tag: 'fork',
+                text: `${node.candidate} has no checkpoint yet; this candidate may not be persisted in checkpoints yet`,
+                candidateName: node.candidate,
+              },
+            });
+            return;
+          }
+          setForkTarget({
+            candidate: node.candidate,
+            checkpointId,
+            parentThreadId: node.threadId,
+          });
         });
 
       // Best glow
@@ -249,9 +299,41 @@ export function TrajectoryTree() {
         .attr('transform', `translate(${NODE_W - 28}, ${NODE_H - 22})`)
         .attr('opacity', 0)
         .attr('cursor', 'pointer')
-        .on('click', (event: MouseEvent) => {
+        .on('click', async (event: MouseEvent) => {
           event.stopPropagation();
-          setForkTarget({ candidate: node.candidate, checkpointId: 'a8f3c2e1' });
+          let checkpointId = node.checkpointId;
+          if (!checkpointId) {
+            const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
+              candidate: node.candidate,
+              iteration: node.iteration,
+              threadId: node.threadId,
+            });
+            checkpointId = resolvedCheckpointId ?? undefined;
+            if (checkpointId) {
+              dispatch({
+                type: 'SET_CHECKPOINT_ID',
+                payload: { candidate: node.candidate, checkpointId },
+              });
+            }
+          }
+          if (!checkpointId) {
+            dispatch({
+              type: 'ADD_LOG_ENTRY',
+              payload: {
+                id: `fork-pending-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                tag: 'fork',
+                text: `${node.candidate} has no checkpoint yet; this candidate may not be persisted in checkpoints yet`,
+                candidateName: node.candidate,
+              },
+            });
+            return;
+          }
+          setForkTarget({
+            candidate: node.candidate,
+            checkpointId,
+            parentThreadId: node.threadId,
+          });
         });
 
       forkBtn.append('rect')
@@ -275,7 +357,7 @@ export function TrajectoryTree() {
           forkBtn.transition().duration(150).attr('opacity', 0);
         });
     }
-  }, [tree, selectedNode, forkEvents, dispatch]);
+  }, [tree, selectedNode, forkEvents, dispatch, params.run_id]);
 
   return (
     <>
@@ -283,7 +365,14 @@ export function TrajectoryTree() {
         <div className="h-11 flex items-center px-6 bg-header border-b border-border shrink-0">
           <span className="text-[10px] font-semibold text-text-hi uppercase tracking-wide">◆ Trajectory</span>
         </div>
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden relative">
+          {tree.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center px-4 text-center">
+              <div className="rounded border border-border bg-header/70 px-3 py-2 text-[10px] text-text-mid uppercase tracking-wide">
+                Waiting for first candidate graph node...
+              </div>
+            </div>
+          )}
           <svg ref={svgRef} className="w-full h-full" />
         </div>
       </div>
@@ -291,6 +380,7 @@ export function TrajectoryTree() {
         <ForkModal
           candidateName={forkTarget.candidate}
           checkpointId={forkTarget.checkpointId}
+          parentThreadId={forkTarget.parentThreadId}
           onClose={() => setForkTarget(null)}
         />
       )}

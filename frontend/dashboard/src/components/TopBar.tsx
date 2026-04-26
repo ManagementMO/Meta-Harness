@@ -8,7 +8,7 @@ type AuthProfile = {
   email?: string;
 };
 
-export function TopBar() {
+export function TopBar({ onReplay }: { onReplay?: () => void }) {
   const { run, mode } = useDashboard();
   const [profile, setProfile] = useState<AuthProfile | null>(null);
 
@@ -36,6 +36,14 @@ export function TopBar() {
     <div className="h-12 flex items-center justify-between px-6 bg-header border-b border-border">
       <Link href="/" className="text-cyan text-sm font-semibold tracking-[3px] uppercase hover:text-text-hi transition-colors">META-HARNESS</Link>
       <div className="flex items-center gap-4">
+        {onReplay && (
+          <button
+            onClick={onReplay}
+            className="text-[10px] text-amber uppercase tracking-wide border border-border px-2 py-1 rounded hover:text-text-hi hover:border-amber/40 transition-colors"
+          >
+            Replay run
+          </button>
+        )}
         {run && (
           <span className="text-[10px] text-text-mid uppercase tracking-wide">
             {run.isMock ? 'mock run' : mode} · {run.status} · iter {run.iteration}

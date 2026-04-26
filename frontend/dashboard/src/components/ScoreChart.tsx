@@ -8,6 +8,22 @@ function barColor(score: number) {
   return '#b06068';
 }
 
+const TASK_ESSENCE: Record<string, string> = {
+  'fix-typo': 'Applies minimal, targeted edits without collateral changes.',
+  'add-function': 'Implements new behavior while preserving existing interfaces.',
+  refactor: 'Improves structure while keeping behavior stable.',
+  'handle-error': 'Adds robust failure handling and safe fallbacks.',
+  'implement-spec': 'Translates product requirements into correct code changes.',
+};
+
+function taskSlug(taskKey: string): string {
+  return taskKey.replace(/^task-\d+-/, '').replace(/^task-/, '');
+}
+
+function taskLabel(taskKey: string): string {
+  return taskSlug(taskKey).replace(/-/g, ' ');
+}
+
 function scoreDomain(scores: number[]) {
   if (scores.length === 0) return { min: 0, max: 1 };
   const min = Math.min(...scores);
@@ -36,9 +52,11 @@ export function ScoreChart() {
     ? Object.entries(focusNode.scores.per_task)
         .map(([key, val]) => ({
           key,
-          label: key.replace(/^task-/, '').replace(/_/g, '-'),
+          slug: taskSlug(key),
+          label: taskLabel(key),
           score: val.pass_rate,
           trials: val.trials,
+          essence: TASK_ESSENCE[taskSlug(key)],
         }))
         .sort((a, b) => a.label.localeCompare(b.label))
         .slice(0, 8)
@@ -94,6 +112,13 @@ export function ScoreChart() {
   }
 
   const hoveredNode = hovered ? plottedNodes.find(n => n.candidate === hovered) : null;
+  const latestNode = plottedNodes.length > 0
+    ? [...plottedNodes].sort((a, b) => b.iteration - a.iteration)[0]
+    : null;
+  const acceptedCount = tree.filter(n => n.status === 'accepted' || n.status === 'best').length;
+  const rejectedCount = tree.filter(n => n.status === 'rejected').length;
+  const forkCount = tree.filter(n => n.isForkBranch).length;
+  const latestDelta = latestNode?.delta ?? null;
 
   const barTop = chartHeight + 10;
   const barLeft = pad.left + 80;
@@ -111,12 +136,64 @@ export function ScoreChart() {
   }
 
   return (
-    <svg
-      viewBox={`0 0 ${width} ${totalHeight}`}
-      className="w-full"
-      preserveAspectRatio="xMidYMin meet"
-      style={{ maxHeight: '100%' }}
-    >
+    <div className="h-full flex flex-col gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="rounded border border-border bg-header/70 px-2 py-2">
+          <div className="text-[8px] uppercase tracking-wide text-text-ghost">Best score</div>
+          <div className="text-[12px] text-cyan font-semibold">{bestNode?.scores.accuracy.toFixed(2) ?? '—'}</div>
+        </div>
+        <div className="rounded border border-border bg-header/70 px-2 py-2">
+          <div className="text-[8px] uppercase tracking-wide text-text-ghost">Latest delta</div>
+          <div className={`text-[12px] font-semibold ${latestDelta === null ? 'text-text-mid' : latestDelta >= 0 ? 'text-green' : 'text-red'}`}>
+            {latestDelta === null ? '—' : `${latestDelta >= 0 ? '+' : ''}${latestDelta.toFixed(2)}`}
+          </div>
+        </div>
+        <div className="rounded border border-border bg-header/70 px-2 py-2">
+          <div className="text-[8px] uppercase tracking-wide text-text-ghost">Accepted / Rejected</div>
+          <div className="text-[12px] text-text-hi font-semibold">{acceptedCount} / {rejectedCount}</div>
+        </div>
+        <div className="rounded border border-border bg-header/70 px-2 py-2">
+          <div className="text-[8px] uppercase tracking-wide text-text-ghost">Fork branches</div>
+          <div className="text-[12px] text-purple font-semibold">{forkCount}</div>
+        </div>
+      </div>
+
+      <div className="text-[9px] uppercase tracking-wide text-text-mid">
+        Candidate focus: <span className="text-text-hi">{focusNode?.candidate ?? 'none selected'}</span>
+      </div>
+
+      <div className="rounded border border-border bg-header/70 px-3 py-3">
+        <div className="text-[9px] uppercase tracking-wide text-text-mid mb-2">
+          What the agent is iterating on
+        </div>
+        {tasks.length === 0 ? (
+          <div className="text-[10px] text-text-mid">
+            Waiting for benchmark task results from the backend.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {tasks.map((task) => (
+              <div key={`essence-${task.key}`} className="rounded border border-border px-2 py-2 bg-panel/60">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] uppercase tracking-wide text-text-hi">{task.label}</span>
+                  <span className="text-[10px] font-semibold text-cyan">{(task.score * 100).toFixed(0)}%</span>
+                </div>
+                <div className="text-[10px] text-text-mid mt-1 leading-relaxed">
+                  {task.essence ?? `Evaluates ${task.slug} behavior in realistic coding tasks.`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-auto">
+        <svg
+          viewBox={`0 0 ${width} ${totalHeight}`}
+          className="w-full"
+          preserveAspectRatio="xMidYMin meet"
+          style={{ maxHeight: '100%' }}
+        >
       {/* ── Main Chart ── */}
 
       {/* Grid */}
@@ -323,6 +400,8 @@ export function ScoreChart() {
           </g>
         );
       })}
-    </svg>
+        </svg>
+      </div>
+    </div>
   );
 }

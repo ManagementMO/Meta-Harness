@@ -249,8 +249,15 @@ function reducer(state: DashboardState, action: DashboardAction): DashboardState
       };
     case "SET_ITERATIONS":
       return { ...state, iterations: action.payload };
-    case "ADD_LOG_ENTRY":
-      return { ...state, logEntries: [...state.logEntries, action.payload] };
+    case "ADD_LOG_ENTRY": {
+      const existingIdx = state.logEntries.findIndex(entry => entry.id === action.payload.id);
+      if (existingIdx === -1) {
+        return { ...state, logEntries: [...state.logEntries, action.payload] };
+      }
+      const next = [...state.logEntries];
+      next[existingIdx] = action.payload;
+      return { ...state, logEntries: next };
+    }
     case "SET_LOG_ENTRIES":
       return { ...state, logEntries: action.payload };
     case "ADD_FORK_EVENT":

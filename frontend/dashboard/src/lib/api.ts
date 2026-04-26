@@ -22,11 +22,40 @@ export type RunListItem = {
   iteration: number;
 };
 
+export type CreateRunRequest = {
+  run_name?: string;
+  proposer?: "claude" | "mock";
+  mock_bench?: boolean;
+  budget?: number;
+  fresh?: boolean;
+  trials?: number;
+  workers?: number;
+};
+
+export type CreateRunResponse = {
+  run_id: string;
+  thread_id: string;
+  status: string;
+  current_iteration: number;
+};
+
 export async function listRuns(): Promise<RunListItem[]> {
   const res = await fetch(`${BASE_URL}/runs`);
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data) ? data : data.runs ?? [];
+}
+
+export async function createRun(payload: CreateRunRequest): Promise<CreateRunResponse> {
+  const res = await fetch(`${BASE_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`failed to create run (${res.status})`);
+  }
+  return (await res.json()) as CreateRunResponse;
 }
 
 // ── Run detail ──
@@ -146,6 +175,8 @@ export async function fetchCheckpoints(runId: string): Promise<unknown> {
 
 type CheckpointRow = {
   checkpoint_id?: string;
+  thread_id?: string;
+  iteration?: number;
   values_summary?: {
     best_candidate?: string;
     iteration?: number;
@@ -165,12 +196,49 @@ export async function fetchCheckpointCandidateMap(runId: string): Promise<Map<st
   return map;
 }
 
+export async function resolveCheckpointForNode(
+  runId: string,
+  node: { candidate: string; iteration: number; threadId?: string },
+): Promise<string | null> {
+  const raw = await fetchCheckpoints(runId);
+  const rows = (raw as { checkpoints?: unknown }).checkpoints;
+  if (!Array.isArray(rows)) return null;
+
+  const typed = rows as CheckpointRow[];
+
+  // Prefer exact LangGraph thread lineage match.
+  if (node.threadId) {
+    const byThreadAndIter = typed
+      .toReversed()
+      .find((row) => row.thread_id === node.threadId && row.iteration === node.iteration);
+    if (byThreadAndIter?.checkpoint_id) return byThreadAndIter.checkpoint_id;
+
+    const byThread = typed.toReversed().find((row) => row.thread_id === node.threadId);
+    if (byThread?.checkpoint_id) return byThread.checkpoint_id;
+  }
+
+  // Fallback for older payloads that only expose best candidate summaries.
+  const byCandidate = typed.toReversed().find(
+    (row) => row.values_summary?.best_candidate === node.candidate,
+  );
+  if (byCandidate?.checkpoint_id) return byCandidate.checkpoint_id;
+
+  // Final fallback by iteration summary when candidate labels drift.
+  const bySummaryIteration = typed
+    .toReversed()
+    .find((row) => row.values_summary?.iteration === node.iteration);
+  if (bySummaryIteration?.checkpoint_id) return bySummaryIteration.checkpoint_id;
+
+  return null;
+}
+
 // ── Forking ──
 
 export async function postFork(
   runId: string,
   body: {
     parent_checkpoint_id: string;
+    parent_thread_id?: string;
     mods?: Record<string, unknown>;
     name?: string;
   },
@@ -188,12 +256,13 @@ export async function forkRun(
   runId: string,
   body: {
     parent_checkpoint_id: string;
+    parent_thread_id?: string;
     mods?: Record<string, unknown>;
     name?: string;
   },
-): Promise<{ branch_id?: string }> {
+): Promise<{ branch_id?: string; thread_id?: string }> {
   const result = await postFork(runId, body);
-  return result as { branch_id?: string };
+  return result as { branch_id?: string; thread_id?: string };
 }
 
 // ── Memory ──

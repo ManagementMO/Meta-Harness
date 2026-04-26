@@ -4,12 +4,47 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { listRuns, isBackendAvailable, type RunListItem } from '@/lib/api';
+import { createRun, listRuns, isBackendAvailable, type RunListItem } from '@/lib/api';
 
 const TITLE = 'META-HARNESS';
 const SUBTITLE = 'autonomous agent evolution monitor';
 const GRID_LINES_H = 12;
 const GRID_LINES_V = 20;
+
+type PresetSuite = {
+  id: string;
+  label: string;
+  description: string;
+  payload: {
+    proposer: 'mock' | 'claude';
+    mock_bench: boolean;
+    budget: number;
+    trials: number;
+    workers: number;
+    fresh: boolean;
+  };
+};
+
+const PRESET_SUITES: PresetSuite[] = [
+  {
+    id: 'quick-smoke',
+    label: 'Quick Smoke',
+    description: '1 iter, 1 trial - confirms wiring fast',
+    payload: { proposer: 'mock', mock_bench: true, budget: 1, trials: 1, workers: 1, fresh: true },
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: '3 iter, 2 trials - realistic local signal',
+    payload: { proposer: 'mock', mock_bench: true, budget: 3, trials: 2, workers: 2, fresh: true },
+  },
+  {
+    id: 'stress',
+    label: 'Stress',
+    description: '5 iter, 5 trials - heavier event volume',
+    payload: { proposer: 'mock', mock_bench: true, budget: 5, trials: 5, workers: 3, fresh: true },
+  },
+];
 
 function GridBackground() {
   return (
@@ -163,7 +198,7 @@ function RunList({ visible }: { visible: boolean }) {
   return (
     <AnimatePresence>
       <motion.div
-        className="absolute bottom-8 right-8 w-[280px]"
+        className="absolute top-24 right-8 w-[280px]"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.5 }}
@@ -214,6 +249,11 @@ export default function Home() {
   const [entering, setEntering] = useState(false);
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [live, setLive] = useState<boolean | null>(null);
+  const [launchingPreset, setLaunchingPreset] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESET_SUITES[1]?.id ?? PRESET_SUITES[0].id);
+  const [mockModeEnabled, setMockModeEnabled] = useState(true);
+  const [proposerMode, setProposerMode] = useState<'mock' | 'claude'>('mock');
 
   useEffect(() => {
     if (phase !== 'ready') return;
@@ -235,6 +275,27 @@ export default function Home() {
       }
     }
     setTimeout(() => router.push(target), 600);
+  };
+
+  const handleLaunchPreset = async () => {
+    const preset = PRESET_SUITES.find(item => item.id === selectedPresetId);
+    if (!preset) return;
+    if (launchingPreset) return;
+    setLaunchError(null);
+    setLaunchingPreset(preset.id);
+    try {
+      const run = await createRun({
+        run_name: `preset-${preset.id}-${Date.now()}`,
+        ...preset.payload,
+        proposer: proposerMode,
+        mock_bench: mockModeEnabled,
+      });
+      router.push(`/runs/${run.run_id}`);
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : 'failed to launch preset');
+    } finally {
+      setLaunchingPreset(null);
+    }
   };
 
   return (
@@ -280,6 +341,84 @@ export default function Home() {
                 <a href="/auth/logout" className="text-text-mid hover:text-text-hi transition-colors">
                   Logout
                 </a>
+              </div>
+              <div className="mt-2 w-full max-w-[460px] rounded border border-border bg-header/80 px-4 py-3">
+                <div className="text-[9px] uppercase tracking-wide text-text-mid mb-2">Preset test suites</div>
+                <div className="mb-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <label className="rounded border border-border px-3 py-2 bg-panel/60">
+                    <div className="text-[9px] uppercase tracking-wide text-text-mid mb-1">Mock benchmark</div>
+                    <button
+                      onClick={() => setMockModeEnabled(prev => !prev)}
+                      className={`rounded border px-2 py-1 text-[10px] uppercase tracking-wide transition-colors ${
+                        mockModeEnabled
+                          ? 'border-amber text-amber hover:border-amber/70'
+                          : 'border-green text-green hover:border-green/70'
+                      }`}
+                    >
+                      {mockModeEnabled ? 'On (fast mock data)' : 'Off (real benchmark)'}
+                    </button>
+                  </label>
+
+                  <label className="rounded border border-border px-3 py-2 bg-panel/60">
+                    <div className="text-[9px] uppercase tracking-wide text-text-mid mb-1">Proposer</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setProposerMode('mock')}
+                        className={`rounded border px-2 py-1 text-[10px] uppercase tracking-wide transition-colors ${
+                          proposerMode === 'mock'
+                            ? 'border-cyan text-cyan'
+                            : 'border-border text-text-mid hover:text-text-hi'
+                        }`}
+                      >
+                        Mock
+                      </button>
+                      <button
+                        onClick={() => setProposerMode('claude')}
+                        className={`rounded border px-2 py-1 text-[10px] uppercase tracking-wide transition-colors ${
+                          proposerMode === 'claude'
+                            ? 'border-cyan text-cyan'
+                            : 'border-border text-text-mid hover:text-text-hi'
+                        }`}
+                      >
+                        Claude
+                      </button>
+                    </div>
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {PRESET_SUITES.map((preset) => (
+                    <div
+                      key={preset.id}
+                      onClick={() => setSelectedPresetId(preset.id)}
+                      className={`text-left rounded border px-3 py-2 transition-colors cursor-pointer ${
+                        selectedPresetId === preset.id
+                          ? 'border-cyan bg-cyan/5'
+                          : 'border-border hover:border-cyan/40'
+                      }`}
+                    >
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan">{preset.label}</div>
+                      <div className="text-[10px] text-text-mid mt-1">{preset.description}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="text-[10px] text-text-mid">
+                    Selected: {PRESET_SUITES.find(p => p.id === selectedPresetId)?.label ?? 'None'} · {proposerMode} proposer · {mockModeEnabled ? 'mock bench' : 'real bench'}
+                  </div>
+                  <button
+                    onClick={() => void handleLaunchPreset()}
+                    disabled={launchingPreset !== null}
+                    className="rounded border border-border-active px-3 py-1.5 text-[10px] uppercase tracking-wide text-cyan hover:border-cyan hover:bg-hover disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Run selected suite
+                  </button>
+                </div>
+                {launchingPreset && (
+                  <div className="text-[10px] text-text-mid mt-2">Launching {launchingPreset} preset...</div>
+                )}
+                {launchError && (
+                  <div className="text-[10px] text-red mt-2">{launchError}</div>
+                )}
               </div>
             </div>
           )}
