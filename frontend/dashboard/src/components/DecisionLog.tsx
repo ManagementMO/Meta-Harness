@@ -80,6 +80,12 @@ export function DecisionLog() {
       </div>
 
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-5">
+        {forkEvents.length > 0 && (
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-purple text-[10px] font-semibold uppercase tracking-wide">Fork timeline</span>
+            <span className="text-text-ghost text-[10px]">branching decisions and rationale</span>
+          </div>
+        )}
         {forkEvents.map((fork, i) => (
           <ForkEventCard key={i} fork={fork} />
         ))}

@@ -249,28 +249,63 @@ export function startSSE(
 export function startMockSSE(
   dispatch: Dispatch<DashboardAction>,
 ): () => void {
+  const MOCK_SPEED_MULTIPLIER = 1.8;
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const schedule = (delayMs: number, action: () => void) => {
+    const timer = setTimeout(action, Math.round(delayMs * MOCK_SPEED_MULTIPLIER));
+    timers.push(timer);
+  };
+
   dispatch({ type: "SET_MODE", payload: "mock" });
   if (demoFixtureState.run) {
-    dispatch({ type: "SET_RUN", payload: demoFixtureState.run });
+    dispatch({
+      type: "SET_RUN",
+      payload: { ...demoFixtureState.run, isMock: true },
+    });
   }
-  if (demoFixtureState.tree) {
-    dispatch({ type: "SET_TREE", payload: demoFixtureState.tree });
-  }
-  if (demoFixtureState.iterations) {
-    dispatch({ type: "SET_ITERATIONS", payload: demoFixtureState.iterations });
-  }
-  if (demoFixtureState.logEntries) {
-    dispatch({ type: "SET_LOG_ENTRIES", payload: demoFixtureState.logEntries });
-  }
-  for (const fork of demoFixtureState.forkEvents ?? []) {
-    dispatch({ type: "ADD_FORK_EVENT", payload: fork });
-  }
-  if (demoFixtureState.selectedNode) {
-    dispatch({ type: "SELECT_NODE", payload: demoFixtureState.selectedNode });
-  }
+  dispatch({ type: "SET_TREE", payload: [] });
+  dispatch({ type: "SET_ITERATIONS", payload: [] });
+  dispatch({ type: "SET_LOG_ENTRIES", payload: [] });
   dispatch({ type: "SET_SSE_CONNECTED", payload: true });
 
+  const tree = demoFixtureState.tree ?? [];
+  const iterations = demoFixtureState.iterations ?? [];
+  const logs = demoFixtureState.logEntries ?? [];
+  const forks = demoFixtureState.forkEvents ?? [];
+
+  tree.forEach((node, idx) => {
+    schedule(700 + idx * 950, () => {
+      dispatch({ type: "ADD_TREE_NODE", payload: node });
+    });
+  });
+
+  iterations.forEach((iteration, idx) => {
+    schedule(1500 + idx * 1300, () => {
+      dispatch({ type: "ADD_ITERATION", payload: iteration });
+    });
+  });
+
+  logs.forEach((entry, idx) => {
+    schedule(1200 + idx * 800, () => {
+      dispatch({ type: "ADD_LOG_ENTRY", payload: entry });
+    });
+  });
+
+  forks.forEach((fork, idx) => {
+    schedule(2200 + idx * 1700, () => {
+      dispatch({ type: "ADD_FORK_EVENT", payload: fork });
+    });
+  });
+
+  if (demoFixtureState.selectedNode) {
+    const selectedNodeDelay = Math.max(4500, 1000 + tree.length * 1200);
+    schedule(selectedNodeDelay, () => {
+      dispatch({ type: "SELECT_NODE", payload: demoFixtureState.selectedNode ?? null });
+    });
+  }
+
   return () => {
+    for (const timer of timers) clearTimeout(timer);
     dispatch({ type: "SET_SSE_CONNECTED", payload: false });
   };
 }
