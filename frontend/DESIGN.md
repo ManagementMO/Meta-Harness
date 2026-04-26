@@ -26,8 +26,8 @@ A third panel provides context on demand: score convergence chart, code diffs, a
 |----------|--------|-----------|
 | Framework | Next.js 15 + React | Per architecture docs |
 | Styling | Tailwind CSS 4 | Utility-first, fast iteration |
-| Visual tone | Dark terminal aesthetic | Monospace (JetBrains Mono), near-black bg (#050508), neon cyan/green/purple accents |
-| Layout | 3-panel split (28/42/30) | Tree left, log center, context right. All hero features always visible |
+| Visual tone | Dark instrument panel | Monospace (JetBrains Mono), charcoal bg (#0c0c12), heavily desaturated accents — whisper colors, not shouts |
+| Layout | 3-panel split (26/44/30) with 16px panel gaps | Tree left, log center, context right. All hero features always visible. Generous inner padding (24px) |
 | Tree library | D3.js (custom SVG) | ReactFlow is overkill for a static-ish tree; D3 gives full control over the fork visualization |
 | Diff rendering | Custom component (no Monaco) | Monaco is 2MB+ — too heavy for a hackathon demo. Line-by-line unified diff with syntax highlighting via Prism or manual spans |
 | Chart | Custom SVG (no chart library) | The convergence chart is ~30 lines of SVG. No need for recharts/d3-chart |
@@ -61,7 +61,9 @@ A third panel provides context on demand: score convergence chart, code diffs, a
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Panel widths:** 28% / 42% / 30%. Panels are NOT resizable in v1 (not worth the complexity for a demo).
+**Panel widths:** 26% / 44% / 30% with 16px gaps between panels. Panels are NOT resizable in v1 (not worth the complexity for a demo).
+
+**Inner padding:** 24px on all panel edges. 20px vertical spacing between sections. 14px between log lines. Everything breathes.
 
 **Viewport:** Designed for 1920×1080 (projector resolution). Must be legible at that size from 3 meters.
 
@@ -92,11 +94,11 @@ SVG-based tree rendered with D3. Each node is a candidate. Edges encode parent�
 
 | Status | Border | Background | Glow |
 |--------|--------|------------|------|
-| Baseline (seed) | `#2a2a3a` | `#111118` | None |
-| Accepted | `#39ff14` (green) | `#081a12` | Subtle green |
-| Rejected | `#ff3b5c` (red) | `#18080e` | None, 50% opacity |
-| Best | `#00ffc8` (cyan) | `#081a18` | Cyan glow |
-| Fork branch | `#a855f7` (purple) | `#120a1a` | Subtle purple |
+| Baseline (seed) | `#32323e` | `#16161e` | None |
+| Accepted | `#6a9e78` (dusty sage) | `#111816` | None |
+| Rejected | `#b06068` (muted rose) | `#181114` | None, 40% opacity |
+| Best | `#7ab8ad` (sage teal) | `#111616` | Very subtle, 10% opacity |
+| Fork branch | `#8878a8` (dusty lavender) | `#141218` | None |
 
 Each node shows:
 - Iteration label (top-left, 8px, uppercase, ghost color)
@@ -105,7 +107,7 @@ Each node shows:
 - Delta (next to score, 9px, +green/−red)
 - Badge for rejected/best (top-right, 7px uppercase)
 
-**Fork zone:** When a fork occurs, a horizontal band spans the tree width at the fork point. Contains "⑂ FORK" label and the fork's prior text. Background `#a855f708`, dashed purple border.
+**Fork zone:** When a fork occurs, a horizontal band spans the tree width at the fork point. Contains "⑂ FORK" label and the fork's prior text. Background `#88788808`, dashed lavender border (#8878a8).
 
 **Toolbar:**
 - Filter buttons: `all` | `winning path` | `forks only`
@@ -138,19 +140,19 @@ Chapters are collapsible. Clicking the header toggles showing/hiding the inner l
 **Inner level — Log lines:**
 Each line shows: timestamp | tag | text | expand indicator
 
-Tags (color-coded pills):
-| Tag | Color | When |
-|-----|-------|------|
-| orient | indigo | Workspace scan at start of trial |
-| plan | blue | Hypothesis and plan steps |
-| tool/read | green | File reads |
-| tool/patch | green | Patch applications |
-| act | cyan | Active execution |
-| verify | amber | Test runs |
-| score | green | Score results |
-| fail | red | Failures |
-| fork | purple | Fork-related events |
-| memory | amber | Cross-run memory reads/writes |
+Tags (color-coded pills — whisper colors, barely tinted):
+| Tag | Color | Hex | When |
+|-----|-------|-----|------|
+| orient | slate | `#606888` | Workspace scan at start of trial |
+| plan | slate blue | `#7090b0` | Hypothesis and plan steps |
+| tool/read | dusty sage | `#6a9e78` | File reads |
+| tool/patch | dusty sage | `#6a9e78` | Patch applications |
+| act | sage teal | `#7ab8ad` | Active execution |
+| verify | khaki | `#b09868` | Test runs |
+| score | dusty sage | `#6a9e78` | Score results |
+| fail | muted rose | `#b06068` | Failures |
+| fork | dusty lavender | `#8878a8` | Fork-related events |
+| memory | khaki | `#b09868` | Cross-run memory reads/writes |
 
 **Expandable lines:** Lines with `▸` indicator expand on click to show:
 - `read` lines → file content preview (first 20 lines)
@@ -425,33 +427,40 @@ frontend/
 
 ## 9. Color System
 
-All colors as CSS variables / Tailwind theme extensions:
+All colors as CSS variables / Tailwind theme extensions.
+**Design intent:** Heavily desaturated, almost monochrome with color hints. Colors whisper — they tint, they don't shout. The dashboard should feel like a dim cockpit at night: calm, focused, precise. Accents are barely there until you look for them.
 
 ```
-Background:
-  --bg-void:    #050508    (body)
-  --bg-panel:   #0a0a0f    (panel bodies)
-  --bg-header:  #0d0d14    (headers, toolbars)
-  --bg-hover:   #14141e    (hover states)
-  --bg-active:  #18182a    (selected states)
+Background (warmer charcoal, not void-black):
+  --bg-void:    #0c0c12    (body)
+  --bg-panel:   #111118    (panel bodies)
+  --bg-header:  #16161e    (headers, toolbars)
+  --bg-hover:   #1c1c26    (hover states)
+  --bg-active:  #222230    (selected states)
 
 Borders:
-  --border:     #1a1a24    (default)
-  --border-act: #2a2a3a    (active/hover)
+  --border:     #22222e    (default — barely visible)
+  --border-act: #32323e    (active/hover)
 
 Text:
-  --text-hi:    #e8e8f0    (primary)
-  --text-mid:   #8888a0    (secondary)
-  --text-lo:    #4a4a5e    (tertiary)
-  --text-ghost: #2a2a3a    (timestamps, line numbers)
+  --text-hi:    #c8c8d0    (primary — warm gray, never white)
+  --text-mid:   #707084    (secondary)
+  --text-lo:    #4e4e5c    (tertiary)
+  --text-ghost: #303040    (timestamps, line numbers)
 
-Accents:
-  --cyan:       #00ffc8    (best candidate, active phases, primary accent)
-  --green:      #39ff14    (accepted, passing tests, positive deltas)
-  --red:        #ff3b5c    (rejected, failing tests, negative deltas)
-  --amber:      #ffb800    (verify, memory, warnings)
-  --purple:     #a855f7    (fork branches, fork events)
-  --blue:       #5ca0f0    (plan phase)
+Accents (whisper colors — ~35-45% saturation, pastel-ish):
+  --cyan:       #7ab8ad    (best candidate, active phases — sage teal)
+  --green:      #6a9e78    (accepted, passing tests — dusty sage)
+  --red:        #b06068    (rejected, failing tests — muted rose)
+  --amber:      #b09868    (verify, memory, warnings — khaki)
+  --purple:     #8878a8    (fork branches — dusty lavender)
+  --blue:       #7090b0    (plan phase — slate blue)
+
+Accent backgrounds (barely-there tints for diff lines, node fills):
+  --green-bg:   #111816    (added lines — 3% green tint)
+  --red-bg:     #181114    (deleted lines — 3% red tint)
+  --purple-bg:  #141218    (fork branch nodes — 3% purple tint)
+  --cyan-bg:    #111616    (best node — 3% teal tint)
 ```
 
 ---
@@ -462,14 +471,14 @@ Accents:
 Font:        JetBrains Mono (self-hosted woff2)
 Fallback:    IBM Plex Mono, monospace
 
-Hierarchy:
-  Iteration headers:  14px, weight 700, letter-spacing 1px
-  Candidate names:    11px, weight 500
-  Log lines:          12px, weight 400
-  Tags/badges:        8-9px, weight 700, uppercase, letter-spacing 0.5-1px
-  Timestamps:         9px, weight 400, ghost color
-  Scores (in nodes):  13-14px, weight 700
-  Status bar:         8px, weight 400, letter-spacing 0.5px
+Hierarchy (generous sizing for projector readability):
+  Iteration headers:  16px, weight 600, letter-spacing 1px
+  Candidate names:    13px, weight 500
+  Log lines:          13px, weight 400, line-height 1.7
+  Tags/badges:        9px, weight 600, uppercase, letter-spacing 0.5px
+  Timestamps:         10px, weight 400, ghost color
+  Scores (in nodes):  15px, weight 600
+  Status bar:         10px, weight 400, letter-spacing 0.5px
 ```
 
 ---
