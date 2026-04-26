@@ -16,15 +16,21 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 DEFAULT_DSN = "postgresql://meta_harness:meta_harness@localhost:5432/meta_harness"
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 def get_dsn() -> str:
@@ -67,7 +73,15 @@ async def persistence_layer(
 async def healthcheck(dsn: str | None = None) -> bool:
     """Return ``True`` iff Postgres is reachable at the configured DSN."""
     try:
-        async with persistence_layer(dsn, setup=False, min_size=1, max_size=2):
-            return True
-    except Exception:  # noqa: BLE001 — any connection error means unhealthy
+        dsn = dsn or get_dsn()
+        conn = await AsyncConnection.connect(
+            conninfo=dsn,
+            timeout=5,
+            row_factory=dict_row,
+            autocommit=True,
+        )
+        async with conn:
+            await conn.execute("SELECT 1")
+        return True
+    except Exception:  # noqa: BLE001 - any connection error means unhealthy
         return False
