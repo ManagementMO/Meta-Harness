@@ -164,7 +164,8 @@ export function TrajectoryTree() {
         .on('click', () => dispatch({ type: 'SELECT_NODE', payload: node.candidate }))
         .on('contextmenu', (event: MouseEvent) => {
           event.preventDefault();
-          setForkTarget({ candidate: node.candidate, checkpointId: 'a8f3c2e1' });
+          const checkpointId = node.checkpointId || `demo-${node.candidate}`;
+          setForkTarget({ candidate: node.candidate, checkpointId });
         });
 
       // Best glow

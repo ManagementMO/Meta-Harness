@@ -73,6 +73,35 @@ def test_loop_mock_no_persistent_writes_artifacts(tmp_path: Path, monkeypatch) -
             stub.unlink()
 
 
+@pytest.mark.asyncio
+async def test_loop_mock_cli_inside_running_event_loop(tmp_path: Path) -> None:
+    run_name = "test-cli-async-" + tmp_path.name[-8:]
+    result = runner.invoke(
+        app,
+        [
+            "loop",
+            "--proposer",
+            "mock",
+            "--mock-bench",
+            "--budget",
+            "1",
+            "--fresh",
+            "--no-persistent",
+            "--run-name",
+            run_name,
+        ],
+    )
+    try:
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["iterations_completed"] == 1
+    finally:
+        run_dir = REPO_ROOT / "runs" / run_name
+        if run_dir.exists():
+            shutil.rmtree(run_dir, ignore_errors=True)
+        for stub in (REPO_ROOT / "agents").glob("_mock_*.py"):
+            stub.unlink()
+
+
 def test_init_scaffolds_skill_md() -> None:
     """``init test-cli-domain`` must create skills/meta-harness-test-cli-domain/SKILL.md
     with renamed frontmatter."""

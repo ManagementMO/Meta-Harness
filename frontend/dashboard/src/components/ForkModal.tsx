@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
-import { useDashboardDispatch } from '@/lib/state';
+import { useDashboard, useDashboardDispatch } from '@/lib/state';
 import { forkRun } from '@/lib/api';
 
 type ForkModalProps = {
@@ -12,6 +12,7 @@ type ForkModalProps = {
 
 export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalProps) {
   const params = useParams<{ run_id: string }>();
+  const { mode } = useDashboard();
   const dispatch = useDashboardDispatch();
   const [prior, setPrior] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -24,15 +25,13 @@ export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalPro
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     let branchId = fallbackBranchId;
-    try {
+    if (mode === 'live') {
       const result = await forkRun(params.run_id, {
         parent_checkpoint_id: checkpointId,
         mods: { proposer_prior: prior.trim() },
         name: fallbackBranchId,
       });
-      branchId = result.branch_id || fallbackBranchId;
-    } catch {
-      // Backend unavailable — fall back to local-only fork event
+      branchId = result.branch_id ?? fallbackBranchId;
     }
 
     dispatch({

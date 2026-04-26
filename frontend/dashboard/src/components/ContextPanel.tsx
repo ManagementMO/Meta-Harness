@@ -10,8 +10,8 @@ export function ContextPanel() {
   const { contextTab, selectedNode, tree } = useDashboard();
   const dispatch = useDashboardDispatch();
 
-  const tabs = ['chart', 'diff', 'test', 'memory'] as const;
-  const selected = selectedNode ?? tree.find(n => n.status === 'best')?.candidate ?? 'few-shot-demos';
+  const tabs = ['chart', 'diff', 'test', 'memory', 'graph'] as const;
+  const selected = selectedNode ?? tree.find(n => n.status === 'best')?.candidate ?? tree[0]?.candidate ?? null;
   const diff = getDiff();
   const testOut = getTestOutput();
 
@@ -35,29 +35,26 @@ export function ContextPanel() {
       <div className="flex-1 flex flex-col overflow-y-auto px-6 py-5 min-h-0">
         {contextTab === 'chart' && <div className="flex-1"><ScoreChart /></div>}
 
-        {contextTab === 'diff' && diff && (() => {
-          const added = diff.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++')).length;
-          const removed = diff.split('\n').filter(l => l.startsWith('-') && !l.startsWith('---')).length;
-          return (
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center gap-2 mb-4 text-xs shrink-0">
-                <span className="text-text-hi font-semibold">agents/{selected}.py</span>
-                <span className="text-green">+{added}</span>
-                <span className="text-red">-{removed}</span>
-              </div>
-              <div className="flex-1 min-h-0">
-                <DiffViewer diff={diff} />
-              </div>
+        {contextTab === 'diff' && diff && (
+          <div>
+            <div className="flex items-center gap-2 mb-4 text-xs">
+              <span className="text-text-hi font-semibold">agents/{selected ?? 'candidate'}.py</span>
+              <span className="text-green">+18</span>
+              <span className="text-red">-3</span>
             </div>
           );
         })()}
         {contextTab === 'diff' && !diff && (
-          <div className="text-text-mid text-xs">No diff available for {selected}</div>
+          <div className="text-text-mid text-xs">
+            {selected ? `No diff available for ${selected}` : 'No candidate selected yet.'}
+          </div>
         )}
 
         {contextTab === 'test' && testOut && <TestOutput output={testOut} />}
         {contextTab === 'test' && !testOut && (
-          <div className="text-text-mid text-xs">No test output available for {selected}</div>
+          <div className="text-text-mid text-xs">
+            {selected ? `No test output available for ${selected}` : 'No candidate selected yet.'}
+          </div>
         )}
 
         {contextTab === 'memory' && <MemoryPanel />}

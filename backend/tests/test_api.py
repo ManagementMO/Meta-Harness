@@ -108,6 +108,32 @@ def test_run_ids_reject_path_traversal():
         _cleanup_repo(repo_root)
 
 
+def test_dev_dashboard_origin_can_read_api():
+    clear_run_state()
+    clear_branch_state()
+    event_registry.clear()
+    repo_root = _make_test_repo()
+
+    app = create_app(
+        repo_root=repo_root,
+        eval_tasks_dir=REPO_ROOT / "eval" / "tasks",
+        use_persistence=False,
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/health",
+                headers={"Origin": "http://localhost:3000"},
+            )
+            assert response.status_code == 200
+            assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    finally:
+        clear_run_state()
+        clear_branch_state()
+        event_registry.clear()
+        _cleanup_repo(repo_root)
+
+
 def test_run_checkpoint_fork_branch_memory_api_flow():
     clear_run_state()
     clear_branch_state()

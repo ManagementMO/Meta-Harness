@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from pathlib import Path
+from typing import Any
 
 import typer
 from dotenv import load_dotenv
@@ -25,6 +27,30 @@ if str(REPO_ROOT) not in sys.path:
 # Load .env from the repo root so ANTHROPIC_API_KEY / POSTGRES_DSN are
 # available before any subcommand instantiates a harness or a saver.
 load_dotenv(REPO_ROOT / ".env")
+
+
+def _run_async(coro: Any) -> Any:
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result: dict[str, Any] = {}
+
+    def runner() -> None:
+        try:
+            result["value"] = asyncio.run(coro)
+        except BaseException as exc:  # noqa: BLE001
+            result["error"] = exc
+
+    thread = threading.Thread(target=runner)
+    thread.start()
+    thread.join()
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
 
 
 app = typer.Typer(
@@ -121,7 +147,7 @@ def inner(
             )
         return final_state
 
-    final_state = asyncio.run(_run())
+    final_state = _run_async(_run())
 
     typer.echo(
         json.dumps(
@@ -259,7 +285,7 @@ def benchmark(
             *[_one_trial(td, spec, t) for td, spec, t in work]
         )
 
-    trial_results = asyncio.run(_run_all())
+    trial_results = _run_async(_run_all())
     for task_id, trial_idx, passed in trial_results:
         results[task_id][trial_idx - 1] = passed
 
@@ -462,12 +488,12 @@ def loop(
             checkpointer=None,
         )
 
-    final_state = asyncio.run(_run())
+    final_state = _run_async(_run())
 
     # Post-eval on holdout set (if requested and meaningful).
     holdout_result: dict[str, Any] | None = None
     if holdout and not mock_bench and final_state.get("best_candidate"):
-        holdout_result = asyncio.run(
+        holdout_result = _run_async(
             _run_holdout_eval(
                 run_dir=run_dir,
                 repo_root=REPO_ROOT,
@@ -702,7 +728,7 @@ def fork(
                     pass
             return metadata.to_dict()
 
-    metadata = asyncio.run(_run())
+    metadata = _run_async(_run())
     typer.echo(json.dumps(metadata, indent=2, default=str))
 
 
@@ -817,7 +843,7 @@ def resume(
                 skill_path=skill_path,
             )
 
-    final_state = asyncio.run(_run())
+    final_state = _run_async(_run())
     typer.echo(
         json.dumps(
             {
@@ -877,7 +903,7 @@ def memory_list(
         async with memory_store() as store:
             return await list_namespace(store, domain=namespace, limit=limit)
 
-    entries = asyncio.run(_run())
+    entries = _run_async(_run())
     if not entries:
         typer.echo(f"No patterns in namespace ('learned_patterns', '{namespace}').")
         return

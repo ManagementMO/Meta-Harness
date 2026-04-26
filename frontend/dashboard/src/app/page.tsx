@@ -169,7 +169,7 @@ function RunList({ visible }: { visible: boolean }) {
         transition={{ duration: 0.6, delay: 0.5 }}
       >
         <div className="text-[9px] text-text-mid uppercase tracking-wide font-semibold mb-2">
-          {live ? 'Recent Runs' : 'Demo Mode'}
+          {live ? 'Recent Runs' : 'Mock Mode'}
         </div>
         {live && runs.length > 0 ? (
           <div className="flex flex-col gap-1.5">
@@ -186,14 +186,22 @@ function RunList({ visible }: { visible: boolean }) {
               </Link>
             ))}
           </div>
-        ) : (
+        ) : live === false ? (
           <Link
             href="/runs/demo-2026-04-25"
             className="flex items-center justify-between px-3 py-2 rounded bg-header border border-border hover:border-cyan/40 transition-colors"
           >
             <span className="text-[11px] text-text-hi">demo-2026-04-25</span>
-            <span className="text-[10px] text-amber">mock</span>
+            <span className="text-[10px] text-amber">explicit mock</span>
           </Link>
+        ) : live ? (
+          <div className="px-3 py-2 rounded bg-header border border-border text-[10px] text-text-mid">
+            No backend runs yet.
+          </div>
+        ) : (
+          <div className="px-3 py-2 rounded bg-header border border-border text-[10px] text-text-mid">
+            Checking backend…
+          </div>
         )}
       </motion.div>
     </AnimatePresence>
@@ -204,19 +212,28 @@ export default function Home() {
   const router = useRouter();
   const [phase, setPhase] = useState<'typing' | 'ready'>('typing');
   const [entering, setEntering] = useState(false);
-  const [latestRunId, setLatestRunId] = useState<string | null>(null);
+  const [runs, setRuns] = useState<RunListItem[]>([]);
+  const [live, setLive] = useState<boolean | null>(null);
 
   useEffect(() => {
+    if (phase !== 'ready') return;
     isBackendAvailable().then(ok => {
-      if (ok) listRuns().then(runs => {
-        if (runs.length > 0) setLatestRunId(runs[0].run_id);
-      }).catch(() => {});
+      setLive(ok);
+      if (ok) listRuns().then(setRuns).catch(() => setRuns([]));
     });
-  }, []);
+  }, [phase]);
 
-  const handleEnter = () => {
+  const handleEnter = async () => {
+    if (entering) return;
     setEntering(true);
-    const target = latestRunId ? `/runs/${latestRunId}` : '/runs/demo-2026-04-25';
+    let target = live !== false && runs[0] ? `/runs/${runs[0].run_id}` : '/runs/demo-2026-04-25';
+    if (live === null) {
+      const ok = await isBackendAvailable();
+      if (ok) {
+        const latest = await listRuns().catch(() => []);
+        target = latest[0] ? `/runs/${latest[0].run_id}` : target;
+      }
+    }
     setTimeout(() => router.push(target), 600);
   };
 
@@ -252,7 +269,7 @@ export default function Home() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              Enter Dashboard &rarr;
+              {live === false ? 'Enter Mock Dashboard →' : 'Enter Dashboard →'}
             </motion.button>
           )}
         </AnimatePresence>
