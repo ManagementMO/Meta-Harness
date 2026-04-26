@@ -1,8 +1,50 @@
 # Project Status — Meta-Harness
 
-> Last updated: 2026-04-25
+> Last updated: 2026-04-26
 
 Meta-Harness is a LangGraph-native substrate for self-improving coding agent harnesses, implementing the Stanford Meta-Harness paradigm. This document tracks what has been accomplished and what remains.
+
+---
+
+## Current Workspace Snapshot
+
+As of 2026-04-26, the codebase has the intended frontend/backend integration
+points in place, but the current local workspace should not be treated as fully
+green.
+
+- The dashboard is wired to the backend through `NEXT_PUBLIC_API_BASE_URL`,
+  defaulting to `http://localhost:8000`.
+- The frontend calls the FastAPI REST API for health, run listing, run detail,
+  checkpoints, forks, and memory.
+- Live updates are wired through SSE via `GET /runs/{run_id}/stream`.
+- The backend exposes the matching FastAPI routers and has CORS enabled for the
+  local Next.js dev origin (`http://localhost:3000`).
+- The dashboard still has mock/demo fallback behavior for the demo run when the
+  backend is unavailable.
+- Candidate diff and test-output panels are not yet backed by real API
+  endpoints; the frontend helpers currently return `null` for those views.
+
+Latest local verification attempt:
+
+```powershell
+cd backend
+uv run pytest tests -q
+```
+
+`uv` was not available on PATH in this shell, so verification was retried with
+the existing virtual environment:
+
+```powershell
+cd backend
+..\.venv\Scripts\python -m pytest tests -q
+```
+
+Result: **31 passed, 21 skipped, 3 failed, 31 errors** in the current Windows
+workspace. The failures/errors are mostly environment and platform related:
+pytest could not read/create some temp and cache directories, some tests assume
+Unix-style `/tmp` paths, and `pytest-asyncio` was not detected by the active
+environment. Frontend build/lint/type checks were not rerun during this
+snapshot.
 
 ---
 
@@ -85,10 +127,16 @@ Meta-Harness is a LangGraph-native substrate for self-improving coding agent har
 
 ### Test Suite
 
-Current backend pass rate: **82 passed, 1 skipped** via
-`cd backend && uv run pytest tests -q`. The skipped test is the live
-LLM inner-loop test when `ANTHROPIC_API_KEY` is unavailable. Frontend e2e
-coverage passes with **7 Playwright tests**.
+Historical project status listed the backend suite as **82 passed, 1 skipped**
+via `cd backend && uv run pytest tests -q`, with frontend e2e coverage passing
+through **7 Playwright tests**.
+
+Current workspace verification on 2026-04-26 did **not** reproduce that green
+state. `uv` was not available on PATH, and the fallback command
+`cd backend && ..\.venv\Scripts\python -m pytest tests -q` reported **31 passed,
+21 skipped, 3 failed, 31 errors**. Treat the suite as currently blocked by
+local environment/platform issues until the Windows temp/cache permissions,
+`pytest-asyncio` availability, and `/tmp` path assumptions are resolved.
 
 ---
 
@@ -153,6 +201,8 @@ under `eval/holdout/`; CLI coverage lives in `backend/tests/test_cli.py`.
 | SSE `_emit` was not best-effort | Fixed | Wrapped in `try/except` to prevent streaming errors from crashing graph nodes |
 | `tokens` / `cost_usd` are zero in real-bench results | Medium | Token aggregation from Anthropic responses is not implemented yet |
 | Memory panel still includes demo fixtures | Low | Live memory SSE entries are visible, but historical memory list is partly mocked |
+| Backend suite not green in current Windows workspace | High | Latest fallback run: 31 passed, 21 skipped, 3 failed, 31 errors; primary causes are temp/cache permissions, missing pytest-asyncio detection, and Unix `/tmp` assumptions |
+| Frontend candidate diff/test output are placeholders | Medium | `getDiff()` and `getTestOutput()` currently return `null`; real candidate diff/test-output endpoints are not wired yet |
 
 ---
 
