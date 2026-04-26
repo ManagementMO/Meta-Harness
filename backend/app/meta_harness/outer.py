@@ -26,6 +26,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from app.meta_harness import frontier as fr
+from app.meta_harness import memory as mem
 from app.meta_harness import proposer as prp
 from app.meta_harness import runs as runs_mod
 from app.meta_harness.harness import CodingAgentHarness
@@ -86,6 +87,7 @@ class OuterLoopRunner:
         bench_workers: int,
         skill_path: Path | None = None,
         checkpointer: Any = None,
+        memory_store: Any = None,
     ) -> None:
         self.run_dir = run_dir
         self.repo_root = repo_root
@@ -96,6 +98,7 @@ class OuterLoopRunner:
         self.bench_workers = bench_workers
         self.skill_path = skill_path
         self.checkpointer = checkpointer
+        self.memory_store = memory_store
 
     # ── propose ───────────────────────────────────────────────────────
 
@@ -117,6 +120,24 @@ class OuterLoopRunner:
         else:
             if self.skill_path is None:
                 raise ValueError("skill_path required for non-mock proposer")
+            # Inject cross-run memory patterns into the proposer prior
+            # (step 8). Patterns from prior runs are read from
+            # PostgresStore and rendered as a Markdown section.
+            proposer_prior = state.get("proposer_prior", "")
+            if self.memory_store is not None:
+                try:
+                    patterns = await mem.search_patterns(
+                        self.memory_store, limit=5,
+                    )
+                    memory_section = mem.format_patterns_for_prompt(patterns)
+                    if memory_section:
+                        proposer_prior = (
+                            (proposer_prior + "\n\n" + memory_section)
+                            if proposer_prior
+                            else memory_section
+                        )
+                except Exception:  # noqa: BLE001 — memory is best-effort
+                    pass
             # claude_propose spawns a subprocess. Wrap in to_thread to
             # avoid blocking the outer event loop while it runs.
             payload = await asyncio.to_thread(
@@ -126,7 +147,7 @@ class OuterLoopRunner:
                 parent_name=parent_name,
                 repo_root=self.repo_root,
                 skill_path=self.skill_path,
-                proposer_prior=state.get("proposer_prior", ""),
+                proposer_prior=proposer_prior,
             )
         new_candidates = list(state.get("candidates") or [])
         for c in payload["candidates"]:
@@ -417,6 +438,22 @@ class OuterLoopRunner:
             },
         )
 
+        # Step 8: write cross-run memory pattern on accepted candidate.
+        if accepted and self.memory_store is not None:
+            try:
+                await mem.add_pattern(
+                    self.memory_store,
+                    pattern=(
+                        f"{candidate.get('hypothesis', 'unknown hypothesis')} "
+                        f"— overrode {candidate.get('axis', 'unknown')} axis"
+                    ),
+                    mechanism_axis=candidate.get("axis", "unknown"),
+                    score_delta=candidate["delta"],
+                    run_id=state["run_id"],
+                )
+            except Exception:  # noqa: BLE001 — memory write is best-effort
+                pass
+
         row = {
             "iteration": state["iteration"],
             "candidate": candidate["name"],
@@ -517,6 +554,7 @@ async def run_outer_loop(
     budget: int,
     skill_path: Path | None = None,
     checkpointer: Any = None,
+    memory_store: Any = None,
 ) -> MetaHarnessState:
     """Run the outer loop end-to-end (async). Returns the final state."""
     runner = OuterLoopRunner(
@@ -529,6 +567,7 @@ async def run_outer_loop(
         bench_workers=bench_workers,
         skill_path=skill_path,
         checkpointer=checkpointer,
+        memory_store=memory_store,
     )
     runs_mod.write_manifest(
         run_dir,
