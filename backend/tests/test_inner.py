@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_inner_loop_runs_end_to_end_on_task_001(tmp_path: Path):
+async def test_inner_loop_runs_end_to_end_on_task_001(tmp_path: Path):
     """Run the baseline harness on task-001 and assert all trace files exist."""
     from agents.baseline import BaselineHarness  # noqa: PLC0415
 
@@ -37,7 +37,7 @@ def test_inner_loop_runs_end_to_end_on_task_001(tmp_path: Path):
     trace_dir = tmp_path / "traces"
 
     with sandbox_for(task_dir / "workspace") as sandbox:
-        final_state = run_inner_loop(
+        final_state = await run_inner_loop(
             harness,
             task_dict=task_spec,
             workspace=sandbox,

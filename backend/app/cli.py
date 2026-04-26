@@ -65,18 +65,14 @@ def inner(
         help="Resolve task from eval/holdout/ instead of eval/tasks/",
     ),
 ) -> None:
-    """Run ONE inner-loop trial on a single task.
-
-    Imports ``agents.<candidate>`` dynamically; the module must define a
-    subclass of ``CodingAgentHarness`` (or any class with the same shape).
-    """
+    """Run ONE inner-loop trial on a single task (async)."""
+    import asyncio
     import importlib
 
     from app.meta_harness.harness import CodingAgentHarness
     from app.meta_harness.inner import run_inner_loop
     from app.meta_harness.sandbox import sandbox_for
 
-    # Resolve task spec + workspace
     eval_root = REPO_ROOT / "eval"
     task_dir = (eval_root / ("holdout" if holdout else "tasks")) / task
     if not task_dir.exists():
@@ -84,7 +80,6 @@ def inner(
         raise typer.Exit(1)
     task_spec = json.loads((task_dir / "task.json").read_text())
 
-    # Resolve candidate harness class
     if candidate == "baseline":
         from agents.baseline import BaselineHarness
 
@@ -95,17 +90,17 @@ def inner(
         except ImportError as exc:
             typer.echo(f"failed to import agents.{candidate}: {exc}", err=True)
             raise typer.Exit(1) from None
-        harness_class = _find_harness_class(mod)
-        if harness_class is None:
+        cls = _find_harness_class(mod)
+        if cls is None:
             typer.echo(
                 f"agents.{candidate} does not export a CodingAgentHarness subclass",
                 err=True,
             )
             raise typer.Exit(1)
+        harness_class = cls
 
     harness = harness_class()
 
-    # Set up trace dir + run inside a fresh sandbox
     trace_dir = (
         REPO_ROOT
         / "runs"
@@ -116,13 +111,17 @@ def inner(
         / f"{task}-trial-1"
     )
 
-    with sandbox_for(task_dir / "workspace") as sandbox:
-        final_state = run_inner_loop(
-            harness,
-            task_dict=task_spec,
-            workspace=sandbox,
-            trace_dir=trace_dir,
-        )
+    async def _run() -> dict[str, Any]:
+        with sandbox_for(task_dir / "workspace") as sandbox:
+            final_state = await run_inner_loop(
+                harness,
+                task_dict=task_spec,
+                workspace=sandbox,
+                trace_dir=trace_dir,
+            )
+        return final_state
+
+    final_state = asyncio.run(_run())
 
     typer.echo(
         json.dumps(
@@ -169,11 +168,11 @@ def benchmark(
     ),
 ) -> None:
     """Run a candidate × N trials × M tasks. Writes eval-result.json
-    under runs/{run_name}/candidates/{candidate}/eval-result.json."""
+    under runs/{run_name}/candidates/{candidate}/eval-result.json (async)."""
+    import asyncio
     import datetime
     import importlib
     import time
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from app.meta_harness.harness import CodingAgentHarness
     from app.meta_harness.inner import run_inner_loop
@@ -191,9 +190,6 @@ def benchmark(
             "%Y%m%dT%H%M%SZ"
         )
 
-    # Resolve candidate harness class once; each trial instantiates a
-    # fresh harness so per-trial mutable state (e.g. the API client) is
-    # not shared across concurrent threads.
     if candidate == "baseline":
         from agents.baseline import BaselineHarness
 
@@ -227,7 +223,11 @@ def benchmark(
     started = time.monotonic()
     results: dict[str, list[bool]] = {d.name: [False] * trials for d in task_dirs}
 
-    def _one_trial(task_dir: Path, spec: dict, trial_idx: int) -> tuple[str, int, bool]:
+    sem = asyncio.Semaphore(workers)
+    n_done = 0
+
+    async def _one_trial(task_dir: Path, spec: dict, trial_idx: int) -> tuple[str, int, bool]:
+        nonlocal n_done
         task_id = task_dir.name
         trace_dir = (
             REPO_ROOT
@@ -238,25 +238,30 @@ def benchmark(
             / "traces"
             / f"{task_id}-trial-{trial_idx}"
         )
-        harness = harness_class()
-        with sandbox_for(task_dir / "workspace") as sandbox:
-            final = run_inner_loop(
-                harness,
-                task_dict=spec,
-                workspace=sandbox,
-                trace_dir=trace_dir,
-                thread_id=f"bench-{candidate}-{task_id}-trial-{trial_idx}",
-            )
+        async with sem:
+            harness = harness_class()
+            with sandbox_for(task_dir / "workspace") as sandbox:
+                final = await run_inner_loop(
+                    harness,
+                    task_dict=spec,
+                    workspace=sandbox,
+                    trace_dir=trace_dir,
+                    thread_id=f"bench-{candidate}-{task_id}-trial-{trial_idx}",
+                )
         passed = (final.get("score") or 0.0) >= 1.0
+        n_done += 1
+        mark = "✓" if passed else "✗"
+        typer.echo(f"  [{n_done}/{len(work)}] {mark} {task_id} trial-{trial_idx}")
         return task_id, trial_idx, passed
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_one_trial, td, spec, t) for td, spec, t in work]
-        for n_done, fut in enumerate(as_completed(futures), start=1):
-            task_id, trial_idx, passed = fut.result()
-            results[task_id][trial_idx - 1] = passed
-            mark = "✓" if passed else "✗"
-            typer.echo(f"  [{n_done}/{len(work)}] {mark} {task_id} trial-{trial_idx}")
+    async def _run_all() -> list[tuple[str, int, bool]]:
+        return await asyncio.gather(
+            *[_one_trial(td, spec, t) for td, spec, t in work]
+        )
+
+    trial_results = asyncio.run(_run_all())
+    for task_id, trial_idx, passed in trial_results:
+        results[task_id][trial_idx - 1] = passed
 
     elapsed = time.monotonic() - started
     total_passes = sum(sum(v) for v in results.values())
@@ -345,16 +350,29 @@ def loop(
         "--holdout",
         help="Use eval/holdout/ instead of eval/tasks/",
     ),
+    persistent: bool = typer.Option(
+        True,
+        "--persistent/--no-persistent",
+        help=(
+            "Use AsyncPostgresSaver checkpointing (step 7). Disable to "
+            "skip checkpoint persistence (in-memory; mock-test mode)."
+        ),
+    ),
 ) -> None:
-    """Run the meta-harness outer loop.
+    """Run the meta-harness outer loop (async).
 
     Step 5 DoD: ``meta-harness loop --proposer mock --mock-bench
     --budget 2 --fresh`` runs 2 iterations and writes
     pending_eval.json, frontier_val.json, evolution_summary.jsonl.
+    Step 7 DoD: ``--persistent`` (default ON when POSTGRES_DSN
+    resolves) checkpoints every transition; ``meta-harness resume
+    <run-name>`` continues from the last checkpoint.
     """
+    import asyncio
     import datetime as _dt
 
     from app.meta_harness.outer import run_outer_loop
+    from app.meta_harness.persistence import persistence_layer
     from app.meta_harness.runs import make_run_dir
 
     if proposer not in {"claude", "mock"}:
@@ -367,7 +385,6 @@ def loop(
     run_dir = make_run_dir(REPO_ROOT, run_name, fresh=fresh)
     eval_tasks_dir = REPO_ROOT / "eval" / ("holdout" if holdout else "tasks")
 
-    # Skill path resolution (INTERFACES.md §5.3).
     skill_path: Path | None = None
     if proposer == "claude":
         if skill:
@@ -379,17 +396,35 @@ def loop(
             typer.echo(f"skill not found: {skill_path}", err=True)
             raise typer.Exit(2)
 
-    final_state = run_outer_loop(
-        run_dir=run_dir,
-        repo_root=REPO_ROOT,
-        eval_tasks_dir=eval_tasks_dir,
-        mock_proposer=(proposer == "mock"),
-        mock_bench=mock_bench,
-        trials=trials,
-        bench_workers=workers,
-        budget=budget,
-        skill_path=skill_path,
-    )
+    async def _run() -> Any:
+        if persistent:
+            async with persistence_layer() as saver:
+                return await run_outer_loop(
+                    run_dir=run_dir,
+                    repo_root=REPO_ROOT,
+                    eval_tasks_dir=eval_tasks_dir,
+                    mock_proposer=(proposer == "mock"),
+                    mock_bench=mock_bench,
+                    trials=trials,
+                    bench_workers=workers,
+                    budget=budget,
+                    skill_path=skill_path,
+                    checkpointer=saver,
+                )
+        return await run_outer_loop(
+            run_dir=run_dir,
+            repo_root=REPO_ROOT,
+            eval_tasks_dir=eval_tasks_dir,
+            mock_proposer=(proposer == "mock"),
+            mock_bench=mock_bench,
+            trials=trials,
+            bench_workers=workers,
+            budget=budget,
+            skill_path=skill_path,
+            checkpointer=None,
+        )
+
+    final_state = asyncio.run(_run())
 
     typer.echo(
         json.dumps(
@@ -400,6 +435,62 @@ def loop(
                 "best_candidate": final_state.get("best_candidate"),
                 "n_candidates": len(final_state.get("candidates") or []),
                 "frontier": final_state.get("frontier"),
+                "persistent": persistent,
+            },
+            indent=2,
+        )
+    )
+
+
+@app.command()
+def resume(
+    run_name: str = typer.Argument(..., help="Run name to resume (under runs/)"),
+) -> None:
+    """Resume an interrupted ``meta-harness loop`` run from its last
+    Postgres checkpoint. Reconstructs the run config from
+    ``runs/{run_name}/manifest.json`` and continues with the same
+    proposer / mock_bench / trials settings.
+    """
+    import asyncio
+
+    from app.meta_harness.outer import resume_outer_loop
+    from app.meta_harness.persistence import persistence_layer
+
+    run_dir = REPO_ROOT / "runs" / run_name
+    if not run_dir.exists():
+        typer.echo(f"run not found: {run_dir}", err=True)
+        raise typer.Exit(1)
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        typer.echo(f"manifest.json missing in {run_dir}; cannot resume", err=True)
+        raise typer.Exit(1)
+
+    eval_tasks_dir = REPO_ROOT / "eval" / "tasks"
+    skill_path: Path | None = None
+    skills_default = REPO_ROOT / "skills" / "meta-harness-coding-agent" / "SKILL.md"
+    if skills_default.exists():
+        skill_path = skills_default
+
+    async def _run() -> Any:
+        async with persistence_layer() as saver:
+            return await resume_outer_loop(
+                run_dir=run_dir,
+                repo_root=REPO_ROOT,
+                eval_tasks_dir=eval_tasks_dir,
+                checkpointer=saver,
+                skill_path=skill_path,
+            )
+
+    final_state = asyncio.run(_run())
+    typer.echo(
+        json.dumps(
+            {
+                "run_dir": str(run_dir),
+                "resumed": True,
+                "iterations_completed": final_state["iteration"],
+                "budget_remaining": final_state["budget_remaining"],
+                "best_candidate": final_state.get("best_candidate"),
+                "n_candidates": len(final_state.get("candidates") or []),
             },
             indent=2,
         )

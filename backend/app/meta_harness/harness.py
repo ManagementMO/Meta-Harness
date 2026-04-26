@@ -128,7 +128,11 @@ class CodingAgentHarness:
                 "ANTHROPIC_API_KEY is not set. Add it to .env or export it "
                 "before running the inner loop."
             )
-        self._client = anthropic.Anthropic(api_key=self.api_key)
+        # Async client — required for use inside LangGraph async nodes
+        # (see Appendix A §A.4 Gotcha 1: sync I/O inside async nodes
+        # blocks the event loop). All node bodies in inner.py and
+        # outer.py are async; ``_call_llm`` is awaited.
+        self._client = anthropic.AsyncAnthropic(api_key=self.api_key)
 
     # ──────────────────────────────────────────────────────────────────
     # Override points 5–10 (methods).
@@ -160,14 +164,14 @@ class CodingAgentHarness:
             f"{json.dumps(plan, indent=2)}"
         )
 
-    # Override 8 — the actual API call
-    def _call_llm(
+    # Override 8 — the actual API call (now async; see Appendix A §A.4)
+    async def _call_llm(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> Any:
         """The Anthropic API call. Override for caching, ordering, etc."""
-        return self._client.messages.create(
+        return await self._client.messages.create(
             model=self.MODEL,
             max_tokens=self.MAX_TOKENS,
             messages=messages,
