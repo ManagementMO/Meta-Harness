@@ -260,17 +260,28 @@ export default function Home() {
 
         <AnimatePresence>
           {phase === 'ready' && (
-            <motion.button
-              onClick={handleEnter}
-              className="mt-4 px-8 py-3 border border-border-active rounded text-[11px] font-semibold tracking-[0.2em] uppercase text-cyan hover:bg-hover hover:border-cyan transition-colors cursor-pointer"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              {live === false ? 'Enter Mock Dashboard →' : 'Enter Dashboard →'}
-            </motion.button>
+            <div className="mt-4 flex flex-col items-center gap-3">
+              <motion.button
+                onClick={handleEnter}
+                className="px-8 py-3 border border-border-active rounded text-[11px] font-semibold tracking-[0.2em] uppercase text-cyan hover:bg-hover hover:border-cyan transition-colors cursor-pointer"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.3 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                {live === false ? 'Enter Mock Dashboard →' : 'Enter Dashboard →'}
+              </motion.button>
+              <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.15em]">
+                <a href="/auth/login" className="text-cyan hover:text-text-hi transition-colors">
+                  Login
+                </a>
+                <span className="text-text-ghost">/</span>
+                <a href="/auth/logout" className="text-text-mid hover:text-text-hi transition-colors">
+                  Logout
+                </a>
+              </div>
+            </div>
           )}
         </AnimatePresence>
       </div>
