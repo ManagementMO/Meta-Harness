@@ -56,19 +56,24 @@ async def list_memory(
             "implemented": False,
         }
     try:
-        entries = await list_namespace(store, namespace, limit=limit)
+        # ``list_namespace`` declares ``domain`` as keyword-only; the
+        # earlier positional call silently raised ``TypeError`` and was
+        # swallowed by the ``except Exception``, leaving every REST
+        # consumer with ``implemented: False`` even on a healthy store.
+        entries = await list_namespace(store, domain=namespace, limit=limit)
         return {
             "namespace": _namespace(namespace),
             "entries": entries,
             "limit": limit,
             "implemented": True,
         }
-    except Exception:  # noqa: BLE001 — memory is best-effort
+    except Exception as exc:  # noqa: BLE001 — memory is best-effort
         return {
             "namespace": _namespace(namespace),
             "entries": [],
             "limit": limit,
             "implemented": False,
+            "error": type(exc).__name__,
         }
 
 
@@ -88,8 +93,9 @@ async def search_memory(
             "implemented": False,
         }
     try:
+        # Same kwarg-positional fix as ``list_memory`` above.
         patterns = await search_patterns(
-            store, namespace, limit=payload.limit
+            store, domain=namespace, limit=payload.limit
         )
         return {
             "namespace": _namespace(namespace),
@@ -99,11 +105,12 @@ async def search_memory(
             "formatted": format_patterns_for_prompt(patterns),
             "implemented": True,
         }
-    except Exception:  # noqa: BLE001 — memory is best-effort
+    except Exception as exc:  # noqa: BLE001 — memory is best-effort
         return {
             "namespace": _namespace(namespace),
             "query": payload.query,
             "limit": payload.limit,
             "results": [],
             "implemented": False,
+            "error": type(exc).__name__,
         }
