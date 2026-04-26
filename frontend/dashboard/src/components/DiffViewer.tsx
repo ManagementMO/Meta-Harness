@@ -1,33 +1,43 @@
 'use client';
+import { DiffEditor } from '@monaco-editor/react';
 
 export function DiffViewer({ diff }: { diff: string }) {
+  // Parse the unified diff to extract original and modified content
   const lines = diff.split('\n');
+  const original: string[] = [];
+  const modified: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('@@')) continue;
+    if (line.startsWith('-')) {
+      original.push(line.slice(1));
+    } else if (line.startsWith('+')) {
+      modified.push(line.slice(1));
+    } else {
+      original.push(line.startsWith(' ') ? line.slice(1) : line);
+      modified.push(line.startsWith(' ') ? line.slice(1) : line);
+    }
+  }
 
   return (
-    <div className="overflow-auto text-[12px] leading-[1.7] font-mono">
-      {lines.map((line, i) => {
-        let bg = '';
-        let prefix = '';
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          bg = 'bg-green-bg';
-          prefix = 'text-green';
-        } else if (line.startsWith('-') && !line.startsWith('---')) {
-          bg = 'bg-red-bg';
-          prefix = 'text-red';
-        } else if (line.startsWith('@@')) {
-          bg = 'bg-hover';
-          prefix = 'text-purple';
-        }
-
-        const isHeader = line.startsWith('---') || line.startsWith('+++');
-
-        return (
-          <div key={i} className={`flex ${bg} ${isHeader ? 'text-text-mid font-semibold' : ''}`}>
-            <span className="w-10 shrink-0 text-right pr-3 text-text-ghost select-none">{i + 1}</span>
-            <span className={prefix ? prefix : 'text-text-mid'}>{line}</span>
-          </div>
-        );
-      })}
-    </div>
+    <DiffEditor
+      height="100%"
+      language="python"
+      original={original.join('\n')}
+      modified={modified.join('\n')}
+      theme="vs-dark"
+      options={{
+        readOnly: true,
+        renderSideBySide: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono', monospace",
+        lineNumbers: 'on',
+        renderOverviewRuler: false,
+        overviewRulerBorder: false,
+        scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+      }}
+    />
   );
 }

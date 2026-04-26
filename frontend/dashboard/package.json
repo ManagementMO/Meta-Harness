@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@types/d3": "^7.4.3",
+    "@xyflow/react": "^12.10.2",
     "d3": "^7.9.0",
     "next": "16.2.4",
     "react": "19.2.4",

@@ -1,7 +1,8 @@
 'use client';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import * as d3 from 'd3';
 import { useDashboard, useDashboardDispatch } from '@/lib/state';
+import { ForkModal } from './ForkModal';
 import type { TreeNode } from '@/lib/types';
 
 const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }> = {
@@ -12,10 +13,10 @@ const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }
   fork: { border: '#8878a8', bg: '#141218', text: '#c8c8d0' },
 };
 
-const NODE_W = 180;
+const NODE_W = 200;
 const NODE_H = 72;
-const GAP_Y = 28;
-const GAP_X = 24;
+const GAP_Y = 32;
+const GAP_X = 16;
 
 type LayoutNode = TreeNode & { x: number; y: number };
 
@@ -27,38 +28,34 @@ function layoutTree(nodes: TreeNode[]): LayoutNode[] {
   if (!root) return [];
 
   const laid: LayoutNode[] = [];
-  const centerX = 200;
+  const colWidth = NODE_W + GAP_X;
 
-  function place(name: string, depth: number, xOffset: number) {
+  function place(name: string, depth: number, column: number) {
     const node = byName.get(name);
     if (!node) return;
 
-    const lNode: LayoutNode = {
+    laid.push({
       ...node,
-      x: xOffset,
+      x: column * colWidth,
       y: depth * (NODE_H + GAP_Y),
-    };
-    laid.push(lNode);
+    });
 
     const children = nodes.filter(n => n.parent_candidate_name === name);
     if (children.length === 1) {
-      place(children[0].candidate, depth + 1, xOffset);
+      place(children[0].candidate, depth + 1, column);
     } else if (children.length > 1) {
       const mainChildren = children.filter(c => !c.isForkBranch && c.status !== 'rejected');
       const forkChildren = children.filter(c => c.isForkBranch);
       const rejectedChildren = children.filter(c => c.status === 'rejected');
+      const ordered = [...mainChildren, ...forkChildren, ...rejectedChildren];
 
-      let col = 0;
-      for (const child of [...mainChildren, ...forkChildren, ...rejectedChildren]) {
-        const offset = col === 0 ? xOffset - (NODE_W + GAP_X) / 2
-          : xOffset + (NODE_W + GAP_X) / 2;
-        place(child.candidate, depth + 1, col === 0 ? xOffset : offset);
-        col++;
-      }
+      ordered.forEach((child, i) => {
+        place(child.candidate, depth + 1, column + i);
+      });
     }
   }
 
-  place(root.candidate, 0, centerX);
+  place(root.candidate, 0, 0);
   return laid;
 }
 
@@ -66,6 +63,7 @@ export function TrajectoryTree() {
   const svgRef = useRef<SVGSVGElement>(null);
   const { tree, selectedNode, forkEvents } = useDashboard();
   const dispatch = useDashboardDispatch();
+  const [forkTarget, setForkTarget] = useState<{ candidate: string; checkpointId: string } | null>(null);
 
   useEffect(() => {
     if (!svgRef.current || tree.length === 0) return;
@@ -79,10 +77,43 @@ export function TrajectoryTree() {
     const byName = new Map(laid.map(n => [n.candidate, n]));
 
     const maxY = Math.max(...laid.map(n => n.y)) + NODE_H + 40;
-    const maxX = Math.max(...laid.map(n => n.x)) + NODE_W + 40;
-    svg.attr('viewBox', `0 0 ${Math.max(maxX, 420)} ${maxY}`);
+    const maxX = Math.max(...laid.map(n => n.x)) + NODE_W + 30;
 
-    const g = svg.append('g').attr('transform', 'translate(10, 20)');
+    // Dot grid background
+    const defs = svg.append('defs');
+    defs.append('pattern')
+      .attr('id', 'dot-grid')
+      .attr('width', 24)
+      .attr('height', 24)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .append('circle')
+      .attr('cx', 12)
+      .attr('cy', 12)
+      .attr('r', 1.2)
+      .attr('fill', '#1c1c26');
+
+    svg.append('rect')
+      .attr('width', '100%')
+      .attr('height', '100%')
+      .attr('fill', 'url(#dot-grid)');
+
+    const g = svg.append('g');
+
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.3, 3])
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform.toString());
+      });
+
+    svg.call(zoom);
+
+    const containerWidth = svgRef.current.clientWidth || 400;
+    const padding = 20;
+    const initialScale = Math.min((containerWidth - padding * 2) / maxX, 1.5);
+    const tx = (containerWidth - maxX * initialScale) / 2;
+    const ty = padding;
+    const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(initialScale);
+    svg.call(zoom.transform, initialTransform);
 
     // Draw edges
     for (const node of laid) {
@@ -108,11 +139,11 @@ export function TrajectoryTree() {
         const zy = forkNode.y + NODE_H + GAP_Y / 2 - 12;
         g.append('rect')
           .attr('x', 0).attr('y', zy)
-          .attr('width', maxX - 20).attr('height', 24)
+          .attr('width', maxX - 30).attr('height', 24)
           .attr('fill', '#8878a8').attr('opacity', 0.06)
           .attr('rx', 4);
         g.append('text')
-          .attr('x', maxX / 2 - 10).attr('y', zy + 16)
+          .attr('x', (maxX - 30) / 2).attr('y', zy + 16)
           .attr('text-anchor', 'middle')
           .attr('fill', '#707084').attr('font-size', 9)
           .attr('font-family', 'monospace')
@@ -130,7 +161,11 @@ export function TrajectoryTree() {
         .attr('transform', `translate(${node.x}, ${node.y})`)
         .attr('opacity', opacity)
         .attr('cursor', 'pointer')
-        .on('click', () => dispatch({ type: 'SELECT_NODE', payload: node.candidate }));
+        .on('click', () => dispatch({ type: 'SELECT_NODE', payload: node.candidate }))
+        .on('contextmenu', (event: MouseEvent) => {
+          event.preventDefault();
+          setForkTarget({ candidate: node.candidate, checkpointId: 'a8f3c2e1' });
+        });
 
       // Best glow
       if (node.status === 'best') {
@@ -152,7 +187,6 @@ export function TrajectoryTree() {
         .attr('x', 10).attr('y', 16)
         .attr('fill', '#303040').attr('font-size', 8)
         .attr('font-family', 'monospace')
-        .attr('text-transform', 'uppercase')
         .text(`ITER ${node.iteration}${node.isForkBranch ? "'" : ''}`);
 
       // Candidate name
@@ -161,7 +195,7 @@ export function TrajectoryTree() {
         .attr('fill', style.text).attr('font-size', 12)
         .attr('font-family', 'monospace')
         .attr('font-weight', 500)
-        .text(node.candidate.length > 18 ? node.candidate.slice(0, 18) + '…' : node.candidate);
+        .text(node.candidate.length > 22 ? node.candidate.slice(0, 22) + '…' : node.candidate);
 
       // Score
       nodeG.append('text')
@@ -212,13 +246,22 @@ export function TrajectoryTree() {
   }, [tree, selectedNode, forkEvents, dispatch]);
 
   return (
-    <div className="flex-1 flex flex-col bg-panel rounded overflow-hidden min-h-0">
-      <div className="px-6 py-3 bg-header border-b border-border">
-        <span className="text-xs font-semibold text-text-hi uppercase tracking-wide">{'◆'} Trajectory</span>
+    <>
+      <div className="flex-1 flex flex-col bg-panel rounded overflow-hidden min-h-0">
+        <div className="h-11 flex items-center px-6 bg-header border-b border-border shrink-0">
+          <span className="text-[10px] font-semibold text-text-hi uppercase tracking-wide">◆ Trajectory</span>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <svg ref={svgRef} className="w-full h-full" />
+        </div>
       </div>
-      <div className="flex-1 overflow-auto p-6">
-        <svg ref={svgRef} className="w-full" preserveAspectRatio="xMidYMin meet" />
-      </div>
-    </div>
+      {forkTarget && (
+        <ForkModal
+          candidateName={forkTarget.candidate}
+          checkpointId={forkTarget.checkpointId}
+          onClose={() => setForkTarget(null)}
+        />
+      )}
+    </>
   );
 }
