@@ -15,6 +15,32 @@ live broken demo.
 through V are for whoever owns the relevant layer. Part VI is reference; skim
 the index, then deep-dive.
 
+**Verification pass — 2026-04-25.** This document was re-verified against the
+live codebase on 2026-04-25 by reading every file it cites and grepping for
+each method/method-call referenced. The pass surfaced four classes of
+inaccuracy that have since been corrected here:
+
+1. **CLI surface** — `meta-harness fork` takes `--mod KEY=VALUE` (not
+   `--prior`), `init` takes `--force` (not `--from-template`), and there is
+   no `meta-harness memory search` subcommand (only the REST endpoint). See §26.
+2. **Override points** — overrides 4 (`MAX_VERIFY_RETRIES`),
+   5 (`_build_initial_context`), and 9 (`should_loop_back_to_act`) are
+   defined on `CodingAgentHarness` but never consumed by `inner.py`. See
+   §10.5 for the live wiring audit and §24.13 for the war-story version.
+3. **Frontend reality** — Monaco IS used (in `DiffViewer.tsx`); ReactFlow
+   IS used (in `StateGraph.tsx` via `@xyflow/react`); the `TopBar` is a
+   14-line stub showing only the logo; `ContextPanel` has 5 tabs (not 3);
+   `MemoryPanel` uses 3 hardcoded fixtures rather than calling
+   `GET /memory/{ns}`; `startSSE` only routes 6 of 11 events into reducer
+   actions. See §16-17 for the actual state of each component.
+4. **Honest accounting** — `tokens` and `cost_usd` are zeros in the real-bench
+   path (`outer.py:347-348, 357-358`); only mock-bench synthesizes a
+   token curve. The dashboard "cost" displays will read $0 for live runs
+   until token aggregation is wired through. See §5.3 caveat and §24.14.
+
+Test count, verified by `uv run pytest tests/ -q`: **78 passed, 0 failed**
+(the older README's "47 tests passing" line is stale).
+
 ---
 
 ## Table of contents
@@ -476,6 +502,26 @@ inner-loop trials don't use `interrupt()` (LangGraph's pause primitive).
 per LangGraph issue #6624 — so `create_task` is mandatory there. For trials,
 `gather` is fine.
 
+**Honest accounting caveat — `tokens` and `cost_usd` are zeros in the real
+bench path** (`outer.py:347-348, 357-358`). The current implementation does
+not aggregate per-trial token usage from inner-loop responses; it writes:
+
+```python
+eval_result = {
+    ...
+    "tokens": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+    "cost_usd": 0.0,
+    "wall_time_s": round(time.monotonic() - started, 2),
+    "avg_tokens": avg_tokens,   # only set in mock-bench path
+    ...
+}
+```
+
+So a "cost" displayed in the UI for a real-bench run will be `$0.00`. The
+mock-bench path *does* synthesize an `avg_tokens` curve (`base + iter * 800`)
+so the Pareto-on-tokens chart has a meaningful x-axis. Wiring real token
+aggregation through the inner loop is a roadmap item, not implemented.
+
 ### 5.4 The `update_frontier` node (`outer.py:395-536`)
 
 Three jobs: Pareto computation, accept/reject decision, memory write.
@@ -736,10 +782,19 @@ def _route_after_verify(state):
 If tests passed, submit. If verify retries are exhausted, submit anyway (and
 `score = 0.0`). Otherwise, loop back to act.
 
+**Important caveat — the retry budget is hardcoded.** The router uses a
+literal `>= 3` instead of `harness.MAX_VERIFY_RETRIES`, AND it does not
+delegate to `harness.should_loop_back_to_act(verify_result)`. Both methods
+are defined on `CodingAgentHarness` (`harness.py:113, 183-185`) and listed
+in the SKILL.md as overridable, but the inner loop does not currently
+consume them. A candidate that overrides `MAX_VERIFY_RETRIES = 5` will see
+no behavioral change. Wiring them through is a one-line fix per call site,
+but it's not done in the current code. See §10 for the full list of
+"defined-but-not-consumed" override points.
+
 This is *fixed* — candidates can't override the routing topology by editing the
-state machine itself. They can only override `should_loop_back_to_act`
-(override 9), which is checked inside `act` not by the router. To change the
-*structure*, you override `build_inner_graph` (override 11).
+state machine itself. To change the *structure*, you override
+`build_inner_graph` (override 11).
 
 ### 6.7 Why each phase function takes `harness` as an argument
 
@@ -941,7 +996,7 @@ end-to-end in <1s for tests and CI.
 
 ## 8. SKILL.md — the proposer's "tool"
 
-File: `skills/meta-harness-coding-agent/SKILL.md` (~150 lines)
+File: `skills/meta-harness-coding-agent/SKILL.md` (149 lines, verified by `wc -l`)
 
 ### 8.1 What it is
 
@@ -1223,6 +1278,40 @@ This is the most powerful override and the rarest. Most candidates touch only
 
 Understanding this division — fixed tools / fixed phases vs. evolvable
 class+methods — is how to talk about the search space precisely.
+
+### 10.5 Live wiring audit — which overrides actually work today
+
+Honesty check: not every override point listed in `SKILL.md` is currently
+consumed by `inner.py`. Verified by `grep -n "harness\." backend/app/meta_harness/inner.py`:
+
+| # | Override | Consumed in `inner.py`? | Where (or why not) |
+|---|---|---|---|
+| 1 | `SYSTEM_PROMPT` | ✅ yes | `inner.py:141` (passed to `messages.create` in plan phase) |
+| 2 | `PLAN_PROMPT_TEMPLATE` | ✅ yes | `inner.py:124` (`harness.PLAN_PROMPT_TEMPLATE.format(...)`) |
+| 3 | `MAX_ACT_TURNS` | ✅ yes | `inner.py:193` (`while turn_count < harness.MAX_ACT_TURNS`) |
+| 4 | `MAX_VERIFY_RETRIES` | ❌ **no** | `_route_after_verify` (`inner.py:411`) hardcodes `>= 3` |
+| 5 | `_build_initial_context` | ❌ **no** | Defined but never called. The orient phase writes `orient_summary` directly to state without projecting through this hook. |
+| 6 | `_format_tool_result` | ✅ yes | `inner.py:239` (`harness._format_tool_result(tu.name, result)`) |
+| 7 | `_compose_act_prompt` | ✅ yes | `inner.py:187` (`harness._compose_act_prompt(plan_dict)`) |
+| 8 | `_call_llm` | ✅ yes | `inner.py:197` (`await harness._call_llm(messages, ACT_TOOLS)`) |
+| 9 | `should_loop_back_to_act` | ❌ **no** | `_route_after_verify` does its own check; never delegates to the harness. |
+| 10 | `_summarize_for_overflow` | ✅ yes | `inner.py:195` (`messages = harness._summarize_for_overflow(messages)`) |
+| 11 | `build_inner_graph` (structural) | ✅ yes | Each candidate can ship its own `build_inner_graph` and the outer loop will use the harness's compiled graph. |
+
+7 of 11 are live (1, 2, 3, 6, 7, 8, 10, 11 — count includes structural).
+4, 5, and 9 are present in the search space description but currently
+unwired. **A proposer that proposes "tune `MAX_VERIFY_RETRIES`" or
+"override `_build_initial_context`" will appear to evolve correctly — its
+candidate file will pass validate — but the override will not affect the
+benchmark score.** This is a real gap; if you have time, wiring all three
+through is a clean one-day task and would visibly improve the search space's
+expressiveness.
+
+Why we ship like this: Build-Order step 3 wired the inner loop to a baseline
+that doesn't need overrides 4/5/9 to score well, and step 6's proposer was
+producing candidates that touched 1, 2, 3, 6, 7, 8, 10 anyway. The unwired
+hooks were never hit during calibration so the gap survived undiscovered
+until this audit.
 
 ---
 
@@ -1794,32 +1883,91 @@ Replay backlog before live stream → resume from `Last-Event-ID` if provided
 ignored by browsers but keeps the connection alive past intermediate proxies'
 60s idle timeouts).
 
-### 14.6 The REST surface
+### 14.6 The REST surface (full inventory)
 
-`POST /runs` returns 201 + `Location: /runs/{run_id}` header. (REST nerds:
-this is the standard "resource created" response.)
+Every router lives in `backend/app/api/`. Wired into the FastAPI app at
+`backend/app/main.py:113-118` via `app.include_router(...)`.
 
-```python
-@router.post("/runs", status_code=status.HTTP_201_CREATED)
-async def create_run(payload, request, response):
-    ...
-    response.headers["Location"] = f"/runs/{run_id}"
-    return _run_info_from_record(record)
-```
+#### Health
+- **`GET /health`** (`main.py:105-111`) → `{status, version, persistence}`.
+  `persistence` is either `"postgres"` (Postgres healthy at startup) or
+  `"memory"` (fell back to `MemorySaver`). The frontend's `isBackendAvailable()`
+  hits this with a 2-second `AbortSignal.timeout`.
 
-Other endpoints:
-- `GET /runs` — list runs (file-system-derived for past runs, in-process for
-  active ones)
-- `GET /runs/{run_id}` — full run info: manifest + frontier_val + last 5
-  evolution_summary rows + best score
-- `DELETE /runs/{run_id}` — cancel + write manifest status
-- `GET /runs/{run_id}/stream` — SSE subscription
-- `GET /runs/{run_id}/checkpoints` — checkpoint list (for fork modal)
-- `POST /runs/{run_id}/fork` — create fork (calls `worktree_add`)
-- `GET /memory/{namespace}` — cross-run memory list
-- `POST /memory/{namespace}/search` — query-filtered patterns
+#### Runs (`api/runs.py`)
+- **`POST /runs`** → **201 Created** + `Location: /runs/{run_id}` header.
+  Body: `{domain, skill_path, budget, model, fresh, run_name, proposer,
+  mock_bench, trials, workers}`. Spawns the outer loop in a background
+  `asyncio.Task` and returns `_run_info_from_record(record)` immediately.
+- **`GET /runs`** → `{runs: [...]}`. Reads run dirs from disk + active records
+  from in-process `run_registry`. Each entry has `run_id, thread_id, status,
+  started_at, current_iteration, best_score`.
+- **`GET /runs/{run_id}`** → full run info: `_run_info_from_record(record)` +
+  `manifest`, `frontier_val`, `summary_rows` (last 5 from
+  `evolution_summary.jsonl`), `best_score`, `error`.
+- **`DELETE /runs/{run_id}`** → cancels the active task, cancels all branches
+  for the run, writes `manifest.status="cancelled"`, returns
+  `{status: "cancelled"}`.
 
-Full surface in `backend/app/api/`. Each endpoint is one file.
+#### Checkpoints (`api/checkpoints.py`)
+- **`GET /runs/{run_id}/checkpoints`** → `{checkpoints: [...]}` — the full
+  history from `branches.get_state_history(graph, thread_id=run_id)`.
+  Each item: `{checkpoint_id, thread_id, ts, node, iteration,
+  values_summary, parent_checkpoint_id, next, metadata}`.
+- **`GET /runs/{run_id}/checkpoints/{checkpoint_id}`** → single checkpoint
+  with full state: `{checkpoint_id, thread_id, state, ts, node}`. 404 if
+  not found. Used by the fork modal to show "what state is at this
+  checkpoint" before the user fills in mods.
+
+#### Forks (`api/forks.py`)
+- **`POST /runs/{run_id}/fork`** → **202 Accepted** (NOT 201; forking is
+  asynchronous — the branch is dispatched immediately but doesn't have
+  results yet). Body: `{parent_checkpoint_id, mods, parent_thread_id?,
+  name?}`. Calls `worktree_add` and emits a `fork-created` SSE event.
+  Returns `{thread_id, status, parent_checkpoint_id, branch_id}`. 404 if
+  the parent checkpoint isn't found.
+
+#### Branches (`api/branches.py`)
+- **`GET /runs/{run_id}/branches`** → `{branches: [...]}` — every branch
+  (including the root) for this run, derived from `list_branches(run_id=...)`.
+- **`GET /runs/{run_id}/trajectory`** → `{trajectory: {threads, edges}}` —
+  the tree structure for the dashboard's trajectory view, from
+  `reconstruct_trajectory(run_id)`.
+- **`POST /runs/{run_id}/branches/{thread_id}/cancel`** → cancels a live
+  branch via `cancel_branch(thread_id)` and emits a `branch-cancelled`
+  SSE event. Returns `{status: <metadata.status>}`. 404 on unknown branch.
+
+#### Events (`api/events.py`)
+- **`GET /runs/{run_id}/stream`** → SSE response, `text/event-stream`.
+  Honors `Last-Event-ID:` request header for resume. Yields heartbeats
+  every 15s when idle (`": heartbeat\n\n"` — SSE comment syntax). The
+  generator checks `request.is_disconnected()` between events so a closed
+  client doesn't keep the subscriber slot.
+
+#### Memory (`api/memory.py`)
+- **`GET /memory/{namespace}?limit=50`** →
+  `{namespace, entries, limit, implemented, error?}`. `implemented: false`
+  when the memory store isn't available (Postgres down, store not
+  configured) — the frontend treats this as a valid placeholder.
+- **`POST /memory/{namespace}/search`** → body `{query, limit}`,
+  returns `{namespace, query, limit, results, formatted, implemented}`.
+  `formatted` is the output of `format_patterns_for_prompt(results)` —
+  literally what the proposer would see in its system prompt. (Useful
+  for the dashboard to render exactly what the proposer would see.)
+
+### 14.7 Status-code conventions used
+
+| Endpoint | Status | Why |
+|---|---|---|
+| `POST /runs` | **201 Created** | Resource created; with `Location` header |
+| `POST /runs/{run_id}/fork` | **202 Accepted** | Long-running async work dispatched; no result yet |
+| `POST /runs/{run_id}/branches/{thread_id}/cancel` | **200 OK** | Synchronous cancel completed |
+| `DELETE /runs/{run_id}` | **200 OK** | Cancellation completed by return |
+| Errors | `400` (bad req) / `404` (missing) / `409` (conflict) | Standard semantics |
+| SSE `emit` of unregistered event | **500** | `UnknownEventTypeError` is a 500-class |
+
+The `StreamingRegistryError` exception handler at `main.py:98-103` converts
+streaming-registry violations into clean JSON 500 responses.
 
 ---
 
@@ -1896,18 +2044,25 @@ inner-loop trial died on macOS, debugged for 30 minutes before realizing.
 
 Path: `frontend/dashboard/`
 
-Tech stack:
+Tech stack (verbatim from `frontend/dashboard/package.json`):
 
-- **Next.js 16** (note: this is *not* the Next.js you know — see
-  `frontend/dashboard/AGENTS.md`. Some APIs differ from training data.)
-- **React 19** with the new compiler.
-- **TypeScript** strict mode.
+- **Next.js 16.2.4** (note: this is *not* the Next.js you know — see
+  `frontend/dashboard/AGENTS.md`. Some APIs differ from training data,
+  including async route params.)
+- **React 19.2.4** with the new compiler.
+- **TypeScript 5+** strict mode.
 - **Tailwind CSS 4** (config in `tailwind.config.ts` is minimal — most theme
   in `app/globals.css`).
-- **Framer Motion** for the landing-page typing animation.
-- **D3** (custom SVG, no React-D3 wrapper) for the trajectory tree.
-- **No Monaco.** Monaco is 2MB+; for hackathon load times, we render unified
-  diffs with our own `DiffViewer.tsx`.
+- **Framer Motion 12** — landing-page typing animation, scanline.
+- **D3 7.9** — custom SVG for the trajectory tree (`TrajectoryTree.tsx`).
+- **`@xyflow/react` 12.10** (ReactFlow under the new package name) — used by
+  `StateGraph.tsx` to render the outer + inner state-graph diagram on the
+  Context Panel's `graph` tab.
+- **`@monaco-editor/react` 4.7** — used by `DiffViewer.tsx`. We do load Monaco;
+  the earlier draft of this doc said "no Monaco" but the actual code uses the
+  side-by-side `DiffEditor` component. Monaco's bundle weight is the price for
+  professional-looking diffs that judges recognize from VS Code.
+- **Playwright 1.59** for e2e tests at `frontend/dashboard/e2e/dashboard.spec.ts`.
 
 ### 16.1 Routes
 
@@ -1921,23 +2076,31 @@ Tech stack:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│ TopBar — run selector, iteration counter, best score, cost, elapsed time      │
+│ TopBar — currently a stub showing only the META-HARNESS logo                  │
 ├──────────────┬──────────────────────────────────────┬──────────────────────────┤
 │              │                                      │                          │
 │ Trajectory   │         Decision Log                 │      Context Panel       │
-│ Tree (D3)    │  (iteration chapters,                │   ┌─ ScoreChart  ────┐  │
-│              │   collapsible, expandable lines)     │   │ (always visible) │  │
-│ 26%          │                          44%         │   └──────────────────┘  │
-│              │                                      │   tabs: chart/diff/test │
+│ Tree (D3)    │  (iteration chapters, collapsible,   │   tabs: chart / diff /  │
+│              │   expandable lines, fork ribbons)    │   test / memory / graph │
+│ 220px fixed  │  flex-[4]                            │   flex-[3]              │
 │              │                                      │                          │
-│              │                                      │   30%                    │
+│              │                                      │                          │
 ├──────────────┴──────────────────────────────────────┴──────────────────────────┤
 │ StatusBar — SSE status, branch count, checkpoint ID, version                  │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-26 / 44 / 30 panel widths. Inner padding 24px. Designed for 1920×1080
-projector resolution.
+**Spec vs implementation reality.** The locked design in
+`frontend/DESIGN.md` §3 calls for 26% / 44% / 30% panel widths with 16px
+gaps. The current implementation in
+`frontend/dashboard/src/app/runs/[run_id]/page.tsx:47-57` uses
+`w-[220px]` for the trajectory tree, `flex-[4]` for the decision log, and
+`flex-[3]` for the context panel — i.e. the tree is a fixed 220px and the
+remaining space splits 4:3 between the log and context. This is closer to
+~13% / ~50% / ~37% on a 1920px viewport. The DESIGN.md numbers are the
+*spec*; the live code diverged for layout convenience. If you ship the
+demo and want the spec to match reality, edit either the doc or the
+flex factors.
 
 ### 16.3 State management
 
@@ -1967,21 +2130,41 @@ landing-page screenshot path; production runs never use it.
 
 ### 16.4 SSE integration
 
-`src/lib/sse.ts` wraps `EventSource`:
+`src/lib/sse.ts` exports two entry points: a low-level
+`subscribeToRun(runId, handlers)` that registers per-event listeners on a
+fresh `EventSource`, and a higher-level `startSSE(runId, dispatch)` that
+opens the stream and routes each event to a reducer action.
 
-```typescript
-export function subscribeToRun(runId, handlers) {
-  const es = new EventSource(`/api/runs/${runId}/stream`);
-  es.addEventListener("state-update", e => handlers.onStateUpdate?.(JSON.parse(e.data)));
-  es.addEventListener("candidate-created", e => handlers.onCandidateCreated?.(JSON.parse(e.data)));
-  // ... 11 event types ...
-  es.onerror = () => handlers.onError?.();
-  return () => es.close();
-}
-```
+`subscribeToRun` is exhaustive — handlers are registered for every key in
+the supplied `handlers` object via `Object.entries(handlers)`. So *any* of
+the 11 event types are addressable from the call site.
 
-The page calls `subscribeToRun` once on mount, dispatches reducer actions per
-event, and returns the `() => es.close()` cleanup from `useEffect`.
+`startSSE` (`src/lib/sse.ts:68-95`), which is what the dashboard page
+actually uses, is **not** exhaustive. It currently routes 6 of the 11
+event types into reducer actions:
+
+| SSE event | `startSSE` handler? | Reducer action |
+|---|---|---|
+| `state-update` | ✅ | `SET_RUN` (when `e.data.run` is present) |
+| `checkpoint-written` | ❌ | (event arrives but is dropped) |
+| `candidate-created` | ✅ | `ADD_TREE_NODE` |
+| `validate-result` | ❌ | (event arrives but is dropped) |
+| `eval-result` | ✅ | `ADD_TREE_NODE` |
+| `frontier-updated` | ✅ | `SET_TREE` (when `e.data.tree` is present) |
+| `iteration-complete` | ✅ | `ADD_LOG_ENTRY` (when `e.data.log` is present) |
+| `fork-created` | ✅ | `ADD_FORK_EVENT` |
+| `branch-cancelled` | ❌ | (event arrives but is dropped) |
+| `memory-pattern-stored` | ❌ | (event arrives but is dropped) |
+| `error` | ❌ | (event arrives but is dropped; `onError` only fires on transport errors) |
+
+The 5 unrouted events still fly over the wire — they're just not turned
+into UI updates today. If you want to surface "validate failed" in the
+dashboard, you add one entry to the handlers object in `startSSE`. This is
+the cleanest "first task for a new contributor" entry point.
+
+`startSSE` returns the `() => source.close()` cleanup, which the page's
+`useEffect` returns from its callback to tear down the connection on
+unmount.
 
 ### 16.5 Color system (DESIGN.md §9)
 
@@ -2003,19 +2186,39 @@ black. Text is `#c8c8d0` warm gray, never white. Monospace throughout
 
 ### 16.6 What's already wired vs. what's still mock
 
-**Wired to backend:**
-- Landing page run list (`GET /runs`)
-- SSE subscription on `/runs/{run_id}/stream`
-- All 11 event types map to reducer actions (full coverage)
+**Wired to the live backend:**
+- Landing page run list (`GET /runs` via `lib/api.ts:listRuns`)
+- Health check (`GET /health` via `lib/api.ts:isBackendAvailable`)
+- Run detail load (`GET /runs/{run_id}` via `lib/api.ts:getRunDetail`)
+- SSE subscription on `/runs/{run_id}/stream` — see §16.4 for which events
+  actually update the UI.
+- Fork POST API exists in `lib/api.ts` (`postFork`, `forkRun`) and the
+  `ForkModal` component imports it; the `TrajectoryTree` opens the modal
+  on right-click of any node.
 
-**Still mock or returning null:**
-- `getDiff(candidateName)` returns `null` (no diff API yet)
-- `getTestOutput(candidateName)` returns `null` (no test-output API yet)
-- Fork modal exists in components but not wired (no `POST /forks` UI handler)
+**Returning null (gracefully degrades to "no data" placeholder):**
+- `getDiff(candidateName)` → returns `null` (no `GET /runs/{id}/candidates/
+  {name}/diff` endpoint exists yet on the backend; `ContextPanel` shows
+  "No diff available for {candidate}" when this returns null).
+- `getTestOutput(candidateName)` → returns `null` (same — no API yet,
+  same placeholder behavior).
 
-The mock-data files at `src/lib/mock/{evolution,events,diffs,test-output}.ts`
-are kept as fixtures for storybook-style screenshots and the demo-mode landing
-page. Real runs render actual SSE data.
+**Mock or partly mock:**
+- `MemoryPanel.tsx` is *partly* mock: it renders three hardcoded "From
+  previous runs" patterns at lines 17-21, then appends real-run memory
+  events that arrive via SSE (filtered from `logEntries` by `tag === "memory"`).
+  It does NOT call `GET /memory/{namespace}` to fetch actual stored
+  patterns; wiring that fetch through is a one-function change and would
+  remove the last hardcoded fixture from the live-data path.
+- `TopBar.tsx` is currently a 14-line stub showing only the
+  `META-HARNESS` logo with a link to home. The doc + DESIGN.md describe
+  iteration counters, best-score, cost, and elapsed-time displays; none
+  of those are implemented yet. The data is in `useDashboard()`'s `run`
+  field — it just has no rendering code.
+- The fixture files at `src/lib/mock/{evolution,events,diffs,test-output}.ts`
+  exist for static-mode screenshots and the demo-mode landing page. Live
+  runs do not consume them by default; they only fill the
+  `demoFixtureState` named export at `src/lib/state.ts:134-159`.
 
 ---
 
@@ -2146,45 +2349,93 @@ Inside, **log lines** at three levels of detail:
 **Filter bar**: `all` / `tools` / `verify` / `scores` / `forks` toggle pills,
 plus a search input. Filters are additive.
 
-### 17.5 The context panel: keep score chart always visible
+### 17.5 The context panel: five tabs, picked by user
 
-Tabs: Score Chart / Diff / Test Output / Memory.
+Actual tab list in `ContextPanel.tsx:14`:
 
-**Top 200px always shows the score chart** regardless of active tab. This is
-load-bearing for the demo: the judge can be reading code in the diff tab and
-still see the score arc updating in their peripheral vision. Don't hide it.
+```typescript
+const tabs = ['chart', 'diff', 'test', 'memory', 'graph'] as const;
+```
 
-**The chart:** SVG, x = iteration, y = accuracy. Two lines (main + fork),
-rejected dots marked differently, baseline as a dashed reference line at 0.62.
-Y-axis range 0.60–0.90 (auto-scales).
+So **5 tabs**, not 3. The DESIGN.md spec said "Score Chart always visible at
+top + tabs below"; the implementation simplified that to a tab switcher
+where `chart` is the default tab. Honest about that gap below.
 
-**Diff viewer:** custom unified-diff renderer. Header shows `filename + N/M`
-(adds/dels). Lines: line numbers, +/- prefix, syntax-highlighted spans.
-Monospace, 11px.
+**`chart` tab — `ScoreChart.tsx`.** SVG line chart, x = iteration, y =
+accuracy. Two lines (main + fork), rejected dots marked differently,
+baseline as a dashed reference at 0.62. Y-axis 0.60–0.90 (auto-scales).
+Always-visible-at-top would be better for the demo (the judge sees the
+arc updating while reading the diff); see §17.8 for that recommendation.
 
-**Test output:** pytest stdout. Green for `PASSED`, red for `FAILED` with
-full traceback. Scrollable, max 400px.
+**`diff` tab — `DiffViewer.tsx`.** Uses `@monaco-editor/react`'s
+`DiffEditor` component, side-by-side mode, theme `vs-dark`, 12px JetBrains
+Mono. Line numbers on, minimap off, scrollbars 6px. The component parses
+unified-diff input into `original` and `modified` text and feeds them to
+Monaco. Activated by clicking a tree node OR a `tool/patch` log line.
+Currently `getDiff()` returns `null` for all candidates, so the panel
+displays "No diff available for {candidate}" until the diff API is wired.
 
-**Memory panel:** renders `format_patterns_for_prompt`'s output verbatim. The
-top-of-panel byline reads: *"What the next proposer will see in its system
-prompt."* This is the highest-leverage UI text on the page; it makes the
-abstract "cross-run memory" concrete.
+**`test` tab — `TestOutput.tsx`.** Pytest stdout in monospace, color-coded
+PASSED/FAILED. Activated by clicking a `verify` log line. `getTestOutput()`
+also returns null today, same placeholder.
 
-### 17.6 The TopBar: status density done right
+**`memory` tab — `MemoryPanel.tsx`.** Lists "From previous runs" patterns
+(currently 3 hardcoded fixtures at lines 17-21 of MemoryPanel.tsx) and
+"This run" patterns (filtered from `logEntries` where `tag === "memory"`).
+The doc earlier claimed it renders `format_patterns_for_prompt`'s output
+verbatim — that's the *intent*; the live implementation isn't there yet.
+The cleanest patch: call `GET /memory/{namespace}` on mount and render its
+`entries` array, replacing the three hardcoded fixtures.
+
+**`graph` tab — `StateGraph.tsx`.** ReactFlow (via `@xyflow/react`)
+diagram of the outer + inner state machines. Static layout (nodes don't
+update in real time today); shows the `propose → validate → benchmark →
+update_frontier` outer loop with a fork branch back to propose, and below
+it the inner loop `orient → plan → act → verify → submit` with the
+verify→act retry edge. Useful for explaining the architecture to judges
+who haven't read this document.
+
+### 17.6 The TopBar: aspirational vs. actual
+
+**The aspirational design** (DESIGN.md §4.1):
 
 ```
 META-HARNESS  ●  demo-2026-04-25 ▾  │  iter 4/5  │  best 0.85  │  $2.14  │  4m32s
 ```
 
-- Logo: cyan, uppercase, 3px letter-spacing, 14px.
-- Run selector: dropdown with green dot if SSE connected, amber if reconnecting.
-- Iteration counter: `iter N/budget`.
-- Best score: cyan. Pulses gently for 1s when a new best lands.
-- Cost: running total of `eval-result.cost_usd`. (Note: with `mock_bench`
-  this stays at $0; with real bench this rises.)
-- Elapsed: client timer.
+- Logo: cyan, uppercase, 3px letter-spacing.
+- Run selector: dropdown with green dot if SSE connected, amber if
+  reconnecting.
+- Iteration counter: `iter N/budget` (sourced from `state-update`).
+- Best score: cyan, pulses gently for 1s on update (sourced from
+  `frontier-updated`).
+- Cost: running total of `eval-result.cost_usd`.
+- Elapsed: client-side timer started on run-start.
 
-Each separator is a single `│`, not a `|`. Small details signal care.
+**The current implementation** (`src/components/TopBar.tsx`, 14 lines):
+
+```tsx
+export function TopBar() {
+  const { run } = useDashboard();
+  const elapsed = '4m32s'; // static for demo
+  return (
+    <div className="h-12 flex items-center px-6 bg-header border-b border-border">
+      <Link href="/" className="text-cyan text-sm font-semibold tracking-[3px] uppercase ...">
+        META-HARNESS
+      </Link>
+    </div>
+  );
+}
+```
+
+Just the logo. No iteration counter, no best score, no cost, no elapsed
+timer. The `useDashboard().run` field has all the data — it's just not
+rendered yet, and the `elapsed = '4m32s'` literal is dead code.
+
+**This is the highest-impact two-hour task you can ship before demo day.**
+The data is already in state; you only need to add JSX. Order of fix
+priority: iteration counter > best score > SSE-connected dot > elapsed
+timer > cost.
 
 ### 17.7 The StatusBar: facts, not flavor
 
@@ -2385,12 +2636,15 @@ better story.
 ### 19.1 Demo prep checklist (the morning of)
 
 - [ ] Postgres healthy: `docker compose -f infra/docker-compose.yml ps`
-- [ ] Backend running on `:8000`: `uv run uvicorn app.main:app --port 8000`
+- [ ] Backend running on `:8000`: `cd backend && uv run uvicorn app.main:app --port 8000 --reload`
 - [ ] Frontend running on `:3000`: `cd frontend/dashboard && npm run dev`
 - [ ] Run `bash scripts/demo_dryrun.sh` end-to-end and confirm 12/12 GREEN
+- [ ] Test count check: `cd backend && uv run pytest tests/ --collect-only -q | tail -1`
+      should report **78 tests collected** (the older README claim of 47 is stale)
 - [ ] Pre-warm the demo: open `http://localhost:3000/runs/demo-2026-04-25?demo=true`
       and let the canned mock data play through once
-- [ ] Confirm `claude --version` is on PATH
+- [ ] Confirm `claude --version` is on PATH (the proposer subprocess fails
+      with `exit 127` if not)
 - [ ] Confirm `.env` has `ANTHROPIC_API_KEY`
 - [ ] Confirm `agents/baseline.py` exists and imports cleanly:
       `uv run python -c "from agents.baseline import BaselineHarness; print('OK')"`
@@ -2614,16 +2868,31 @@ The keystone files, sorted by likelihood of "I need to know how X works":
 
 ### Frontend
 
-| Component | File | Key lines |
+| Component | File | Notes |
 |---|---|---|
-| Dashboard types (matches INTERFACES.md) | `frontend/dashboard/src/lib/types.ts` | 1-133 |
-| Reducer + provider | `frontend/dashboard/src/lib/state.ts` | 121-159, 161-210 |
-| SSE client | `frontend/dashboard/src/lib/sse.ts` | (whole file) |
-| API client | `frontend/dashboard/src/lib/api.ts` | (whole file) |
-| Landing page | `frontend/dashboard/src/app/page.tsx` | 1-266 |
-| Dashboard page | `frontend/dashboard/src/app/runs/[run_id]/page.tsx` | (whole file) |
-| Trajectory tree component | `frontend/dashboard/src/components/TrajectoryTree.tsx` | (whole file) |
-| Decision log component | `frontend/dashboard/src/components/DecisionLog.tsx` | (whole file) |
+| Dashboard types (matches INTERFACES.md) | `frontend/dashboard/src/lib/types.ts` | 12 reducer actions, all SSE event types |
+| Reducer + provider | `frontend/dashboard/src/lib/state.ts` | `initialState` empty; `demoFixtureState` for demo mode |
+| Low-level SSE client | `frontend/dashboard/src/lib/sse.ts:31-60` | `subscribeToRun(runId, handlers)` — full coverage |
+| High-level SSE client | `frontend/dashboard/src/lib/sse.ts:68-95` | `startSSE(runId, dispatch)` — 6 of 11 events handled today |
+| REST + helper API client | `frontend/dashboard/src/lib/api.ts` | `getDiff/getTestOutput` return null today |
+| Landing page | `frontend/dashboard/src/app/page.tsx:203-266` | Typing animation, run list |
+| Dashboard page (3-panel layout) | `frontend/dashboard/src/app/runs/[run_id]/page.tsx:14-61` | `220px / flex-4 / flex-3` |
+| TopBar (stub — only logo today) | `frontend/dashboard/src/components/TopBar.tsx` | 14 lines; data ready in state but no rendering |
+| StatusBar | `frontend/dashboard/src/components/StatusBar.tsx` | SSE dot, branches, ckpt, version |
+| Trajectory tree (D3 SVG) | `frontend/dashboard/src/components/TrajectoryTree.tsx:62-267` | `layoutTree` at 23-60; right-click → fork modal |
+| Decision log (chapters + filters) | `frontend/dashboard/src/components/DecisionLog.tsx` | Auto-scroll + jump-to-latest |
+| Context panel (5 tabs) | `frontend/dashboard/src/components/ContextPanel.tsx` | tabs: chart / diff / test / memory / graph |
+| Score chart (SVG) | `frontend/dashboard/src/components/ScoreChart.tsx` | |
+| Diff viewer (Monaco DiffEditor) | `frontend/dashboard/src/components/DiffViewer.tsx` | Side-by-side mode |
+| Test output | `frontend/dashboard/src/components/TestOutput.tsx` | Pytest stdout renderer |
+| Memory panel (partly mock) | `frontend/dashboard/src/components/MemoryPanel.tsx:17-21` | 3 hardcoded fixtures + live SSE memory events |
+| State graph (ReactFlow) | `frontend/dashboard/src/components/StateGraph.tsx:36-105` | Static layout of outer + inner machines |
+| Fork modal | `frontend/dashboard/src/components/ForkModal.tsx` | Triggered by right-click on TrajectoryTree node |
+| Fork event card | `frontend/dashboard/src/components/ForkEvent.tsx` | Renders inside DecisionLog |
+| Filter bar primitive | `frontend/dashboard/src/components/ui/FilterBar.tsx` | |
+| Phase pipeline primitive | `frontend/dashboard/src/components/ui/PhasePipeline.tsx` | |
+| Badge primitive | `frontend/dashboard/src/components/ui/Badge.tsx` | |
+| Mock fixtures (demo mode) | `frontend/dashboard/src/lib/mock/{evolution,events,diffs,test-output}.ts` | Used by `demoFixtureState` |
 
 ### Eval / tasks
 
@@ -2786,6 +3055,43 @@ recovers; verify with `git log -3` before committing again.
 Switching to Haiku 4.5 default (with `META_HARNESS_INNER_MODEL` env override
 for power users) fixed it. The model is set at `harness.py:119-121`.
 
+### 24.13 Override points 4, 5, 9 are defined but not consumed
+
+Found by `grep -n "harness\." backend/app/meta_harness/inner.py` during this
+doc's verification pass:
+
+- `harness.MAX_VERIFY_RETRIES` (override 4) is never read — `_route_after_verify`
+  hardcodes `>= 3` at `inner.py:411`.
+- `harness._build_initial_context` (override 5) is never called — the orient
+  phase writes `orient_summary` directly into state without projection.
+- `harness.should_loop_back_to_act` (override 9) is never invoked — the
+  same `_route_after_verify` does its own check.
+
+Candidates that override these methods will validate clean and look like
+real evolution to the proposer, but their behavioral effect on the inner
+loop is zero. If you have a free hour: wire them through (one line each
+at `inner.py:411` and the orient/router call sites). Documented in §10.5.
+
+### 24.14 `tokens` and `cost_usd` are stubbed in real-bench eval results
+
+`outer.py:347-348, 357` write zeros for both fields in the `_mock_bench=False`
+path. The dashboard's "cost" / "avg_tokens" displays are therefore fictional
+on real runs. Mock-bench DOES synthesize an `avg_tokens` curve (`24000 +
+iter * 800`), so the Pareto-on-tokens chart has a meaningful x-axis on
+mock-bench runs only. Real token aggregation through the inner loop
+(reading `response.usage` from each `_call_llm` and summing) is a roadmap
+item, not implemented.
+
+### 24.15 SSE `startSSE` only routes 6 of 11 event types into UI
+
+`src/lib/sse.ts:68-95` registers handlers for only `state-update`,
+`candidate-created`, `eval-result`, `frontier-updated`,
+`iteration-complete`, `fork-created`. The other 5 (`checkpoint-written`,
+`validate-result`, `branch-cancelled`, `memory-pattern-stored`, `error`)
+arrive over the wire but are dropped on the floor. The doc earlier
+claimed full coverage; that's wrong. Fix is: add entries to the handlers
+object in `startSSE`. See §16.4 for the full table.
+
 ---
 
 ## 25. All 11 SSE event types in full
@@ -2888,30 +3194,120 @@ dashboard reducer can route to the correct branch.
 
 ## 26. The complete CLI surface
 
-`backend/app/cli.py` exposes 8 subcommands via Typer:
+Verified verbatim against `backend/app/cli.py`. Eight commands total
+(seven top-level + one memory sub-app with one subcommand). The
+`scripts/demo_dryrun.sh` step 7 check counts these eight names.
 
-```bash
-meta-harness version
-meta-harness inner --task <task_id> --candidate <candidate_name>
-meta-harness benchmark --candidate <candidate_name> --trials <N>
-meta-harness loop --proposer {claude,mock} --budget <N> [--mock-bench] [--fresh] [--run-name <name>] [--no-persistent] [--holdout]
-meta-harness fork <run_name> --checkpoint <ckpt_id> --prior <new_prior>
-meta-harness init <domain> [--from-template <template_name>]
-meta-harness resume <run_name>
-meta-harness memory list --namespace <domain>
-meta-harness memory search --namespace <domain> --query <text>
+### `meta-harness version` (`cli.py:37-42`)
+
+Print the version. No flags.
+
+### `meta-harness inner` (`cli.py:45-139`)
+
+Run ONE inner-loop trial on ONE task. Used to smoke-test the inner machine.
+
+```
+meta-harness inner
+    --task <task_id>                  # required, e.g. task-001-fix-typo
+    --candidate <name>                # default "baseline"
+    --run-name <name>                 # default "inner-test"
+    --holdout                         # resolve from eval/holdout/ instead of eval/tasks/
 ```
 
-### Top-level flags
+Writes traces to `runs/{run_name}/candidates/{candidate}/traces/{task}-trial-1/`.
 
-- `--proposer claude` (default) — real `claude` CLI subprocess
-- `--proposer mock` — fast mock proposer for tests/CI
-- `--mock-bench` — synthesize scores instead of running inner trials
-- `--budget N` — number of outer-loop iterations
-- `--fresh` — wipe `runs/{run_name}/` before starting
-- `--no-persistent` — use in-memory checkpointer (skip Postgres)
-- `--holdout` — re-evaluate the best candidate against `eval/holdout/` after the search loop
-- `--run-name <name>` — set run ID (default: `run-YYYYMMDDTHHMMSSZ`)
+### `meta-harness benchmark` (`cli.py:142-295`)
+
+Run a candidate × N trials × M tasks. Multi-task multi-trial scoring.
+
+```
+meta-harness benchmark
+    --candidate <name>                # default "baseline"
+    --trials <N>                      # default 5
+    --workers <N>                     # default 5 (NB: differs from `loop`'s default 3)
+    --run-name <name>                 # auto-generated if omitted
+    --holdout                         # use eval/holdout/ instead of eval/tasks/
+```
+
+Writes `runs/{run_name}/candidates/{candidate}/eval-result.json`.
+
+### `meta-harness loop` (`cli.py:298-494`)
+
+The outer loop. The headline command.
+
+```
+meta-harness loop
+    --proposer {claude,mock}          # default "claude"
+    --budget <N>                      # default 5 — outer iterations
+    --trials <N>                      # default 5 — inner trials per task
+    --workers <N>                     # default 3 — bench parallelism
+    --domain <name>                   # default "coding-agent" → skills/meta-harness-coding-agent/SKILL.md
+    --skill <path>                    # explicit override of skill resolution
+    --mock-bench                      # synthesize scores instead of running inner trials
+    --fresh                           # wipe runs/<run-name>/ before starting
+    --run-name <name>                 # auto-generated if omitted: "loop-YYYYMMDDTHHMMSSZ"
+    --persistent / --no-persistent    # default ON; uses AsyncPostgresSaver when ON
+    --holdout                         # post-eval best on eval/holdout/ after search
+```
+
+Writes the full run-dir layout: `manifest.json`, `pending_eval.json` (per
+iter), `frontier_val.json`, `evolution_summary.jsonl`, `agents/`,
+`candidates/{name}/`, `proposer-sessions/iter-{N}/`. With `--holdout`,
+also writes `holdout-result.json` after the search loop completes (only
+meaningful when `--mock-bench` is OFF).
+
+### `meta-harness fork` (`cli.py:618-706`)
+
+Fork a run from a historical checkpoint into a concurrent branch.
+
+```
+meta-harness fork <run_name>          # positional, the run to fork from
+    --checkpoint <id>                 # required: parent checkpoint id
+    --mod KEY=VALUE                   # repeatable: state mods at the fork point
+    --name <label>                    # optional human-readable branch label
+    --detach                          # don't wait for the branch to finish
+```
+
+Note: the doc earlier claimed `--prior <text>` for editing the proposer
+prior; the *actual* CLI takes `--mod proposer_prior=<text>` (i.e. you set
+state fields generically via `--mod KEY=VALUE`). Multiple `--mod` flags
+allowed.
+
+### `meta-harness init` (`cli.py:709-778`)
+
+Scaffold a new SKILL.md domain.
+
+```
+meta-harness init <domain>            # positional, e.g. "browsing-agent"
+    --force                           # overwrite skills/meta-harness-<domain>/ if it exists
+```
+
+Copies `skills/meta-harness-coding-agent/SKILL.md` as a template if
+present, otherwise writes a minimal SKILL.md stub. Prints next-step
+guidance JSON.
+
+### `meta-harness resume` (`cli.py:781-833`)
+
+Resume an interrupted `meta-harness loop` run from its last Postgres
+checkpoint. Reconstructs config from `runs/{run_name}/manifest.json`.
+
+```
+meta-harness resume <run_name>        # positional, the run to resume
+```
+
+### `meta-harness memory list` (`cli.py:862-884` — under `memory_app` sub-Typer)
+
+The only memory subcommand. Lists all learned patterns in a namespace.
+
+```
+meta-harness memory list
+    --namespace <domain>              # default "coding-agent"
+    --limit <N>                       # default 50
+```
+
+Note: there is **no** `meta-harness memory search` CLI command; the doc
+previously claimed one. To filter patterns by query string, hit the REST
+endpoint `POST /memory/{namespace}/search` with body `{query, limit}`.
 
 ### Most useful one-liners
 
@@ -2925,14 +3321,25 @@ uv run meta-harness loop --proposer mock --mock-bench --budget 2 --fresh
 # Run the real claude proposer with mock benchmarking (~3min)
 uv run meta-harness loop --proposer claude --mock-bench --budget 2 --fresh
 
+# Run the real claude proposer with REAL benchmarking — full demo (~6min, ~$3)
+uv run meta-harness loop --proposer claude --budget 5 --fresh --holdout --run-name demo
+
 # Resume an interrupted run from its last Postgres checkpoint
 uv run meta-harness resume <run-name>
 
-# List learned patterns from prior runs
+# Fork an existing run from a historical checkpoint with a new prior
+uv run meta-harness fork <run-name> \
+    --checkpoint <ckpt-id> \
+    --mod proposer_prior="explore example-driven prompts" \
+    --name "fork-explore-examples"
+
+# List learned patterns from prior runs (no `search` subcommand exists)
 uv run meta-harness memory list --namespace coding-agent
 
-# Search learned patterns (case-insensitive substring match)
-uv run meta-harness memory search --namespace coding-agent --query "schema_drift"
+# Filter patterns via the REST endpoint instead
+curl -s -XPOST http://localhost:8000/memory/coding-agent/search \
+    -H 'content-type: application/json' \
+    -d '{"query":"schema_drift","limit":5}' | jq .
 ```
 
 ---
