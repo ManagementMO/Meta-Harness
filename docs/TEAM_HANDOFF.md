@@ -189,7 +189,7 @@ This is a refresher. The full version is `ARCHITECTURE_SECTION_1.md`.
                                                                   │
                                                                   ▼ events via FastAPI SSE multiplex
                                        ┌───────────────────────────────────────────────────────────────┐
-                                       │  DASHBOARD (Next.js 15)                                         │
+                                       │  DASHBOARD (Next.js 16)                                         │
                                        │  • Outer state graph viz (ReactFlow) — live nodes lighting up   │
                                        │  • Candidate trajectory tree (D3) — fork branches grow         │
                                        │  • Code diff viewer (Monaco) — agents/<n>.py vs parent         │
@@ -509,7 +509,7 @@ uv run python scripts/smoke_api.py
 
 ### Step 11 — Frontend dashboard (~5-7 hr — LARGEST SINGLE PIECE)
 
-**Goal.** Next.js 15 dashboard at `localhost:3000`. The
+**Goal.** Next.js 16 dashboard at `localhost:3000`. The
 `/runs/[run_id]` page renders ReactFlow outer-state-graph, D3
 trajectory tree, Monaco unified-diff viewer, score+frontier chart,
 memory panel, and a right-click → fork modal. All five views update
@@ -691,7 +691,7 @@ eval calibration so the demo arc has headroom.
 **Owned steps:** 11 (primary). Co-owner of step 13 (demo acceptance)
 with the rest of the team. Owner of eval recalibration.
 
-**Skills required:** Next.js 15, TypeScript, ReactFlow, D3, Monaco
+**Skills required:** Next.js 16, TypeScript, ReactFlow, D3, Monaco
 editor, Tailwind 4, EventSource API, basic Playwright. Plus a willingness
 to read INTERFACES.md verbatim — your component contracts come from there.
 

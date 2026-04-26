@@ -1,4 +1,4 @@
-import type { RunSummary, TreeNode } from "./types";
+import type { CandidateStatus, RunSummary, Scores, TreeNode } from "./types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -37,13 +37,46 @@ export async function fetchRunInfo(runId: string): Promise<unknown> {
   return res.json();
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getRunDetail(runId: string): Promise<any> {
-  return fetchRunInfo(runId);
+type RunDetail = {
+  run_id?: string;
+  runId?: string;
+  thread_id?: string;
+  threadId?: string;
+  branches?: number;
+  checkpoint_id?: string | null;
+  checkpointId?: string | null;
+  best_score?: number | null;
+  bestScore?: number | null;
+  status?: string;
+  current_iteration?: number;
+  iteration?: number;
+  summary_rows?: EvolutionRow[];
+};
+
+type EvolutionRow = {
+  candidate?: string;
+  candidate_name?: string;
+  parent_candidate_name?: string | null;
+  iteration?: number;
+  status?: CandidateStatus;
+  scores?: Scores;
+  hypothesis?: string;
+  axis?: "exploration" | "exploitation";
+  delta?: number | null;
+  is_fork_branch?: boolean;
+  thread_id?: string;
+};
+
+function asRunDetail(value: unknown): RunDetail {
+  return value && typeof value === "object" ? (value as RunDetail) : {};
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function toRunInfo(detail: any): RunSummary {
+export async function getRunDetail(runId: string): Promise<RunDetail> {
+  return asRunDetail(await fetchRunInfo(runId));
+}
+
+export function toRunInfo(value: RunDetail): RunSummary {
+  const detail = asRunDetail(value);
   return {
     runId: detail.run_id ?? detail.runId ?? "",
     threadId: detail.thread_id ?? detail.threadId ?? detail.run_id ?? "",
@@ -55,8 +88,7 @@ export function toRunInfo(detail: any): RunSummary {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function toTreeNodes(rows: any[]): TreeNode[] {
+export function toTreeNodes(rows: EvolutionRow[]): TreeNode[] {
   return rows.map((r) => ({
     candidate: r.candidate ?? r.candidate_name ?? "",
     parent_candidate_name: r.parent_candidate_name ?? null,

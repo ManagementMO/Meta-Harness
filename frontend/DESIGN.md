@@ -24,7 +24,7 @@ A third panel provides context on demand: score convergence chart, code diffs, a
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Framework | Next.js 15 + React | Per architecture docs |
+| Framework | Next.js 16 + React | Per architecture docs |
 | Styling | Tailwind CSS 4 | Utility-first, fast iteration |
 | Visual tone | Dark instrument panel | Monospace (JetBrains Mono), charcoal bg (#0c0c12), heavily desaturated accents — whisper colors, not shouts |
 | Layout | 3-panel split (26/44/30) with 16px panel gaps | Tree left, log center, context right. All hero features always visible. Generous inner padding (24px) |

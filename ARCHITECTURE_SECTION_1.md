@@ -45,7 +45,7 @@ the outer machine's `propose` node.
                           │ traces, scores, file diffs streamed
                           ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│   DASHBOARD  (Next.js 15)                                            │
+│   DASHBOARD  (Next.js 16)                                            │
 │   • Outer state graph viz (ReactFlow): live nodes lighting up        │
 │   • Candidate trajectory tree (D3): branching for forks              │
 │   • Code diff viewer (Monaco / unified-diff): live agents/<n>.py     │
@@ -78,7 +78,7 @@ the outer machine's `propose` node.
 ## Locked decisions at the architecture level
 
 - **Monorepo** with top-level dirs `backend/` (FastAPI + LangGraph),
-  `frontend/` (Next.js 15), `sdk/` (the `meta_harness` Python package +
+  `frontend/` (Next.js 16), `sdk/` (the `meta_harness` Python package +
   `wrap_graph()` / `@trace_run`), `skills/` (SKILL.md files), `eval/`
   (5 coding tasks + holdout), `docs/`, `infra/` (docker-compose).
 - **Postgres** via local `docker compose up -d postgres`. LangGraph's

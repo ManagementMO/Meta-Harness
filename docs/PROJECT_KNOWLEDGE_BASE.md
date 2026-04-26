@@ -38,21 +38,20 @@ inaccuracy that have since been corrected here:
    no `meta-harness memory search` subcommand (only the REST endpoint). See §26.
 2. **Override points** — overrides 4 (`MAX_VERIFY_RETRIES`),
    5 (`_build_initial_context`), and 9 (`should_loop_back_to_act`) are
-   defined on `CodingAgentHarness` but never consumed by `inner.py`. See
-   §10.5 for the live wiring audit and §24.13 for the war-story version.
+   consumed by `inner.py`. See §10.5 for the live wiring audit.
 3. **Frontend reality** — Monaco IS used (in `DiffViewer.tsx`); ReactFlow
    IS used (in `StateGraph.tsx` via `@xyflow/react`); the `TopBar` is a
    14-line stub showing only the logo; `ContextPanel` has 5 tabs (not 3);
    `MemoryPanel` uses 3 hardcoded fixtures rather than calling
-   `GET /memory/{ns}`; `startSSE` only routes 6 of 11 events into reducer
-   actions. See §16-17 for the actual state of each component.
+   `GET /memory/{ns}`; `startSSE` routes all 11 SSE event types into
+   reducer actions. See §16-17 for the actual state of each component.
 4. **Honest accounting** — `tokens` and `cost_usd` are zeros in the real-bench
    path (`outer.py:347-348, 357-358`); only mock-bench synthesizes a
    token curve. The dashboard "cost" displays will read $0 for live runs
    until token aggregation is wired through. See §5.3 caveat and §24.14.
 
-Test count, verified by `uv run pytest tests/ -q`: **78 passed, 0 failed**
-(the older README's "47 tests passing" line is stale).
+Test count, verified by `cd backend && uv run pytest tests/ -q`:
+**82 passed, 1 skipped, 0 failed**.
 
 ---
 
@@ -780,32 +779,24 @@ async def submit(state, harness):
 The 50KB cap exists so `final_files.json` doesn't bloat to MBs when a candidate
 accidentally writes a giant file. The 5 search-set tasks all fit comfortably.
 
-### 6.6 Conditional routing (`inner.py:406-413`)
+### 6.6 Conditional routing (`inner.py:406-428`)
 
 ```python
-def _route_after_verify(state):
+def _route_after_verify_for_harness(state, harness):
     verify_result = state.get("verify_result") or {}
     if verify_result.get("tests_pass", False):
         return "submit"
-    if state.get("verify_attempts", 0) >= 3:
+    if state.get("verify_attempts", 0) >= harness.MAX_VERIFY_RETRIES:
         return "submit"
-    return "act"
+    return "act" if harness.should_loop_back_to_act(verify_result) else "submit"
 ```
 
 If tests passed, submit. If verify retries are exhausted, submit anyway (and
-`score = 0.0`). Otherwise, loop back to act.
+`score = 0.0`). Otherwise, delegate to
+`harness.should_loop_back_to_act(verify_result)` to decide whether to loop
+back to act.
 
-**Important caveat — the retry budget is hardcoded.** The router uses a
-literal `>= 3` instead of `harness.MAX_VERIFY_RETRIES`, AND it does not
-delegate to `harness.should_loop_back_to_act(verify_result)`. Both methods
-are defined on `CodingAgentHarness` (`harness.py:113, 183-185`) and listed
-in the SKILL.md as overridable, but the inner loop does not currently
-consume them. A candidate that overrides `MAX_VERIFY_RETRIES = 5` will see
-no behavioral change. Wiring them through is a one-line fix per call site,
-but it's not done in the current code. See §10 for the full list of
-"defined-but-not-consumed" override points.
-
-This is *fixed* — candidates can't override the routing topology by editing the
+This is still structurally fixed — candidates can't override the routing topology by editing the
 state machine itself. To change the *structure*, you override
 `build_inner_graph` (override 11).
 
@@ -1294,37 +1285,25 @@ class+methods — is how to talk about the search space precisely.
 
 ### 10.5 Live wiring audit — which overrides actually work today
 
-Honesty check: not every override point listed in `SKILL.md` is currently
-consumed by `inner.py`. Verified by `grep -n "harness\." backend/app/meta_harness/inner.py`:
+Honesty check: every override point listed in `SKILL.md` is consumed by
+`inner.py`. Verified by `grep -n "harness\." backend/app/meta_harness/inner.py`:
 
 | # | Override | Consumed in `inner.py`? | Where (or why not) |
 |---|---|---|---|
 | 1 | `SYSTEM_PROMPT` | ✅ yes | `inner.py:141` (passed to `messages.create` in plan phase) |
 | 2 | `PLAN_PROMPT_TEMPLATE` | ✅ yes | `inner.py:124` (`harness.PLAN_PROMPT_TEMPLATE.format(...)`) |
 | 3 | `MAX_ACT_TURNS` | ✅ yes | `inner.py:193` (`while turn_count < harness.MAX_ACT_TURNS`) |
-| 4 | `MAX_VERIFY_RETRIES` | ❌ **no** | `_route_after_verify` (`inner.py:411`) hardcodes `>= 3` |
-| 5 | `_build_initial_context` | ❌ **no** | Defined but never called. The orient phase writes `orient_summary` directly to state without projecting through this hook. |
+| 4 | `MAX_VERIFY_RETRIES` | ✅ yes | `inner.py:454` routes with `harness.MAX_VERIFY_RETRIES` |
+| 5 | `_build_initial_context` | ✅ yes | `inner.py:122` projects `orient_summary` before planning |
 | 6 | `_format_tool_result` | ✅ yes | `inner.py:239` (`harness._format_tool_result(tu.name, result)`) |
 | 7 | `_compose_act_prompt` | ✅ yes | `inner.py:187` (`harness._compose_act_prompt(plan_dict)`) |
 | 8 | `_call_llm` | ✅ yes | `inner.py:197` (`await harness._call_llm(messages, ACT_TOOLS)`) |
-| 9 | `should_loop_back_to_act` | ❌ **no** | `_route_after_verify` does its own check; never delegates to the harness. |
+| 9 | `should_loop_back_to_act` | ✅ yes | `inner.py:426` delegates failed verifies to the harness retry policy |
 | 10 | `_summarize_for_overflow` | ✅ yes | `inner.py:195` (`messages = harness._summarize_for_overflow(messages)`) |
 | 11 | `build_inner_graph` (structural) | ✅ yes | Each candidate can ship its own `build_inner_graph` and the outer loop will use the harness's compiled graph. |
 
-7 of 11 are live (1, 2, 3, 6, 7, 8, 10, 11 — count includes structural).
-4, 5, and 9 are present in the search space description but currently
-unwired. **A proposer that proposes "tune `MAX_VERIFY_RETRIES`" or
-"override `_build_initial_context`" will appear to evolve correctly — its
-candidate file will pass validate — but the override will not affect the
-benchmark score.** This is a real gap; if you have time, wiring all three
-through is a clean one-day task and would visibly improve the search space's
-expressiveness.
-
-Why we ship like this: Build-Order step 3 wired the inner loop to a baseline
-that doesn't need overrides 4/5/9 to score well, and step 6's proposer was
-producing candidates that touched 1, 2, 3, 6, 7, 8, 10 anyway. The unwired
-hooks were never hit during calibration so the gap survived undiscovered
-until this audit.
+All 11 are live. Overrides 4, 5, and 9 were previously documented as a gap;
+they are now wired and covered by `backend/tests/test_inner.py`.
 
 ---
 
@@ -2152,28 +2131,25 @@ opens the stream and routes each event to a reducer action.
 the supplied `handlers` object via `Object.entries(handlers)`. So *any* of
 the 11 event types are addressable from the call site.
 
-`startSSE` (`src/lib/sse.ts:68-95`), which is what the dashboard page
-actually uses, is **not** exhaustive. It currently routes 6 of the 11
-event types into reducer actions:
+`startSSE` (`src/lib/sse.ts`), which is what the dashboard page actually
+uses, is exhaustive: it routes all 11 event types into reducer actions:
 
 | SSE event | `startSSE` handler? | Reducer action |
 |---|---|---|
 | `state-update` | ✅ | `SET_RUN` (when `e.data.run` is present) |
-| `checkpoint-written` | ❌ | (event arrives but is dropped) |
+| `checkpoint-written` | ✅ | `ADD_LOG_ENTRY` memory log |
 | `candidate-created` | ✅ | `ADD_TREE_NODE` |
-| `validate-result` | ❌ | (event arrives but is dropped) |
+| `validate-result` | ✅ | `ADD_LOG_ENTRY` verify/fail log |
 | `eval-result` | ✅ | `ADD_TREE_NODE` |
 | `frontier-updated` | ✅ | `SET_TREE` (when `e.data.tree` is present) |
 | `iteration-complete` | ✅ | `ADD_LOG_ENTRY` (when `e.data.log` is present) |
 | `fork-created` | ✅ | `ADD_FORK_EVENT` |
-| `branch-cancelled` | ❌ | (event arrives but is dropped) |
-| `memory-pattern-stored` | ❌ | (event arrives but is dropped) |
-| `error` | ❌ | (event arrives but is dropped; `onError` only fires on transport errors) |
+| `branch-cancelled` | ✅ | `ADD_LOG_ENTRY` fork log |
+| `memory-pattern-stored` | ✅ | `ADD_LOG_ENTRY` memory log |
+| `error` | ✅ | `ADD_LOG_ENTRY` fail log (`onError` still handles transport errors) |
 
-The 5 unrouted events still fly over the wire — they're just not turned
-into UI updates today. If you want to surface "validate failed" in the
-dashboard, you add one entry to the handlers object in `startSSE`. This is
-the cleanest "first task for a new contributor" entry point.
+All event payloads still also fly over the low-level `subscribeToRun`
+surface for custom consumers.
 
 `startSSE` returns the `() => source.close()` cleanup, which the page's
 `useEffect` returns from its callback to tear down the connection on
@@ -2652,8 +2628,8 @@ better story.
 - [ ] Backend running on `:8000`: `cd backend && uv run uvicorn app.main:app --port 8000 --reload`
 - [ ] Frontend running on `:3000`: `cd frontend/dashboard && npm run dev`
 - [ ] Run `bash scripts/demo_dryrun.sh` end-to-end and confirm 12/12 GREEN
-- [ ] Test count check: `cd backend && uv run pytest tests/ --collect-only -q | tail -1`
-      should report **78 tests collected** (the older README claim of 47 is stale)
+- [ ] Test count check: `cd backend && uv run pytest tests/ -q`
+      should report **82 passed, 1 skipped, 0 failed**
 - [ ] Pre-warm the demo: open `http://localhost:3000/runs/demo-2026-04-25?demo=true`
       and let the canned mock data play through once
 - [ ] Confirm `claude --version` is on PATH (the proposer subprocess fails
@@ -2886,7 +2862,7 @@ The keystone files, sorted by likelihood of "I need to know how X works":
 | Dashboard types (matches INTERFACES.md) | `frontend/dashboard/src/lib/types.ts` | 12 reducer actions, all SSE event types |
 | Reducer + provider | `frontend/dashboard/src/lib/state.ts` | `initialState` empty; `demoFixtureState` for demo mode |
 | Low-level SSE client | `frontend/dashboard/src/lib/sse.ts:31-60` | `subscribeToRun(runId, handlers)` — full coverage |
-| High-level SSE client | `frontend/dashboard/src/lib/sse.ts:68-95` | `startSSE(runId, dispatch)` — 6 of 11 events handled today |
+| High-level SSE client | `frontend/dashboard/src/lib/sse.ts` | `startSSE(runId, dispatch)` — all 11 events handled today |
 | REST + helper API client | `frontend/dashboard/src/lib/api.ts` | `getDiff/getTestOutput` return null today |
 | Landing page | `frontend/dashboard/src/app/page.tsx:203-266` | Typing animation, run list |
 | Dashboard page (3-panel layout) | `frontend/dashboard/src/app/runs/[run_id]/page.tsx:14-61` | `220px / flex-4 / flex-3` |
@@ -3068,22 +3044,19 @@ recovers; verify with `git log -3` before committing again.
 Switching to Haiku 4.5 default (with `META_HARNESS_INNER_MODEL` env override
 for power users) fixed it. The model is set at `harness.py:119-121`.
 
-### 24.13 Override points 4, 5, 9 are defined but not consumed
+### 24.13 Override points 4, 5, 9 are consumed by inner.py
 
 Found by `grep -n "harness\." backend/app/meta_harness/inner.py` during this
 doc's verification pass:
 
-- `harness.MAX_VERIFY_RETRIES` (override 4) is never read — `_route_after_verify`
-  hardcodes `>= 3` at `inner.py:411`.
-- `harness._build_initial_context` (override 5) is never called — the orient
-  phase writes `orient_summary` directly into state without projection.
-- `harness.should_loop_back_to_act` (override 9) is never invoked — the
-  same `_route_after_verify` does its own check.
+- `harness.MAX_VERIFY_RETRIES` (override 4) gates the verify→act retry edge.
+- `harness._build_initial_context` (override 5) projects `orient_summary`
+  before the plan prompt is composed.
+- `harness.should_loop_back_to_act` (override 9) controls whether failed
+  verify results should retry when budget remains.
 
-Candidates that override these methods will validate clean and look like
-real evolution to the proposer, but their behavioral effect on the inner
-loop is zero. If you have a free hour: wire them through (one line each
-at `inner.py:411` and the orient/router call sites). Documented in §10.5.
+These hooks are covered by `backend/tests/test_inner.py`; candidate overrides
+now have behavioral effect during benchmark runs.
 
 ### 24.14 `tokens` and `cost_usd` are stubbed in real-bench eval results
 
@@ -3095,15 +3068,15 @@ mock-bench runs only. Real token aggregation through the inner loop
 (reading `response.usage` from each `_call_llm` and summing) is a roadmap
 item, not implemented.
 
-### 24.15 SSE `startSSE` only routes 6 of 11 event types into UI
+### 24.15 SSE `startSSE` routes all 11 event types into UI
 
-`src/lib/sse.ts:68-95` registers handlers for only `state-update`,
-`candidate-created`, `eval-result`, `frontier-updated`,
-`iteration-complete`, `fork-created`. The other 5 (`checkpoint-written`,
-`validate-result`, `branch-cancelled`, `memory-pattern-stored`, `error`)
-arrive over the wire but are dropped on the floor. The doc earlier
-claimed full coverage; that's wrong. Fix is: add entries to the handlers
-object in `startSSE`. See §16.4 for the full table.
+`src/lib/sse.ts` registers handlers for every event in the backend's closed
+set. Events with first-class UI shapes (`candidate-created`, `eval-result`,
+`frontier-updated`, `fork-created`, `state-update`) update their dedicated
+state; lifecycle/control events (`checkpoint-written`, `validate-result`,
+`branch-cancelled`, `memory-pattern-stored`, `error`) become decision-log
+entries so they are visible instead of silently dropped. See §16.4 for the
+full table.
 
 ---
 
