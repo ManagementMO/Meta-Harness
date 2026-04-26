@@ -184,4 +184,11 @@ def test_run_checkpoint_fork_branch_memory_api_flow():
         clear_run_state()
         clear_branch_state()
         event_registry.clear()
+        # Remove stale sys.path entries and cached modules so
+        # later test_outer.py imports resolve cleanly.
+        stale = str(repo_root)
+        sys.path[:] = [p for p in sys.path if p != stale]
+        for module_name in list(sys.modules):
+            if module_name == "agents" or module_name.startswith("agents."):
+                sys.modules.pop(module_name, None)
         _cleanup_repo(repo_root)

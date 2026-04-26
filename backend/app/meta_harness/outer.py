@@ -60,8 +60,12 @@ def _emit(
     event_type: str,
     payload: dict[str, Any],
 ) -> None:
-    payload.setdefault("thread_id", _thread_id(state, config))
-    emit_run_event(state["run_id"], event_type, payload)
+    """Best-effort SSE emit — never crash graph nodes on streaming errors."""
+    try:
+        payload.setdefault("thread_id", _thread_id(state, config))
+        emit_run_event(state["run_id"], event_type, payload)
+    except Exception:  # noqa: BLE001 — SSE is best-effort; never crash a node
+        pass
 
 
 class OuterLoopRunner:
@@ -205,6 +209,13 @@ class OuterLoopRunner:
         module_path, _, class_name = candidate["import_path"].partition(":")
         error: str | None = None
         try:
+            # Pop stale module cache entry before importing. Mock candidate
+            # stubs are rewritten on each iteration; a prior run or test may
+            # have deleted the .py file while leaving an orphaned sys.modules
+            # entry pointing at a now-missing path. Fresh import_module is
+            # the safest approach.
+            sys.modules.pop(module_path, None)
+            importlib.invalidate_caches()
             mod = await asyncio.to_thread(importlib.import_module, module_path)
             cls = getattr(mod, class_name)
             assert issubclass(cls, CodingAgentHarness) or cls.__name__.startswith(
