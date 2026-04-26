@@ -22,11 +22,10 @@ export function ContextPanel() {
           <button
             key={tab}
             onClick={() => dispatch({ type: 'SET_CONTEXT_TAB', payload: tab })}
-            className={`px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide rounded transition-colors ${
-              contextTab === tab
+            className={`px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide rounded transition-colors ${contextTab === tab
                 ? 'text-cyan border-b-2 border-cyan'
                 : 'text-text-mid hover:text-text-hi'
-            }`}
+              }`}
           >
             {tab}
           </button>
