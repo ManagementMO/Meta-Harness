@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -258,16 +259,20 @@ async def test_search_respects_limit():
 
 
 async def test_accepted_candidate_writes_memory_pattern(tmp_path: Path):
-    """When a mock candidate is accepted, a pattern should appear in
-    the coding-agent domain."""
+    """When a mock candidate is accepted, a pattern with this run's id
+    in ``evidence_run_ids`` should appear in the coding-agent domain.
+
+    Resilient to test pollution: prior runs accumulate entries in the
+    ``coding-agent`` namespace, which can push the total beyond a
+    ``limit=N`` window and make a count-based ``after > before``
+    assertion plateau at ``N``. We instead look for entries whose
+    ``evidence_run_ids`` contains the unique run name from THIS test.
+    """
     eval_tasks_dir = REPO_ROOT / "eval" / "tasks"
+    run_name = "accepted-test-" + uuid.uuid4().hex[:8]
 
     async with persistence_layer() as saver, memory_store() as mstore:
-        # Snapshot pattern count before
-        before = await search_patterns(mstore, domain="coding-agent", limit=100)
-        before_count = len(before)
-
-        run_dir = make_run_dir(tmp_path, "accepted-test", fresh=True)
+        run_dir = make_run_dir(tmp_path, run_name, fresh=True)
         final = await run_outer_loop(
             run_dir=run_dir,
             repo_root=REPO_ROOT,
@@ -281,21 +286,23 @@ async def test_accepted_candidate_writes_memory_pattern(tmp_path: Path):
             memory_store=mstore,
         )
 
-        # Check which candidates were accepted
         accepted = [c for c in final["candidates"] if c["status"] == "accepted"]
-
-        # Snapshot after
-        after = await search_patterns(mstore, domain="coding-agent", limit=100)
-        after_count = len(after)
-
-        # If any candidate was accepted, at least one new pattern
         if accepted:
-            assert after_count > before_count, (
-                f"Expected new patterns after {len(accepted)} accepted candidates; "
-                f"before={before_count}, after={after_count}"
+            # Search a wide window so a polluted namespace doesn't hide
+            # newly-written entries.
+            entries = await search_patterns(
+                mstore, domain="coding-agent", limit=1000
+            )
+            this_run_entries = [
+                e for e in entries
+                if run_name in (e.get("evidence_run_ids") or [])
+            ]
+            assert this_run_entries, (
+                f"Expected ≥1 pattern with evidence_run_ids=['{run_name}'] "
+                f"after {len(accepted)} accepted candidate(s); none found "
+                f"among {len(entries)} entries scanned"
             )
 
-    # Cleanup
     for c in final.get("candidates", []):
         stub = REPO_ROOT / "agents" / f"{c['name']}.py"
         if stub.exists():
