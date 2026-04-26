@@ -134,7 +134,7 @@ function TypingTitle({ onComplete }: { onComplete: () => void }) {
 function Scanline() {
   return (
     <motion.div
-      className="absolute left-0 right-0 h-[2px] pointer-events-none"
+      className="absolute left-0 right-0 h-0.5 pointer-events-none"
       style={{
         background: 'linear-gradient(90deg, transparent, rgba(122,184,173,0.15), transparent)',
         boxShadow: '0 0 20px rgba(122,184,173,0.08)',
@@ -177,68 +177,6 @@ function StatusReadout({ visible }: { visible: boolean }) {
           ))}
         </motion.div>
       )}
-    </AnimatePresence>
-  );
-}
-
-function RunList({ visible }: { visible: boolean }) {
-  const [runs, setRuns] = useState<RunListItem[]>([]);
-  const [live, setLive] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (!visible) return;
-    isBackendAvailable().then(ok => {
-      setLive(ok);
-      if (ok) listRuns().then(setRuns).catch(() => setLive(false));
-    });
-  }, [visible]);
-
-  if (!visible) return null;
-
-  return (
-    <AnimatePresence>
-      <motion.div
-        className="absolute top-24 right-8 w-[280px]"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.5 }}
-      >
-        <div className="text-[9px] text-text-mid uppercase tracking-wide font-semibold mb-2">
-          {live ? 'Recent Runs' : 'Mock Mode'}
-        </div>
-        {live && runs.length > 0 ? (
-          <div className="flex flex-col gap-1.5">
-            {runs.slice(0, 5).map(run => (
-              <Link
-                key={run.run_id}
-                href={`/runs/${run.run_id}`}
-                className="flex items-center justify-between px-3 py-2 rounded bg-header border border-border hover:border-cyan/40 transition-colors"
-              >
-                <span className="text-[11px] text-text-hi truncate">{run.run_id}</span>
-                <span className="text-[10px] text-text-mid ml-2 shrink-0">
-                  {run.best_score !== null ? `${(run.best_score * 100).toFixed(0)}%` : run.status}
-                </span>
-              </Link>
-            ))}
-          </div>
-        ) : live === false ? (
-          <Link
-            href="/runs/demo-2026-04-25"
-            className="flex items-center justify-between px-3 py-2 rounded bg-header border border-border hover:border-cyan/40 transition-colors"
-          >
-            <span className="text-[11px] text-text-hi">demo-2026-04-25</span>
-            <span className="text-[10px] text-amber">explicit mock</span>
-          </Link>
-        ) : live ? (
-          <div className="px-3 py-2 rounded bg-header border border-border text-[10px] text-text-mid">
-            No backend runs yet.
-          </div>
-        ) : (
-          <div className="px-3 py-2 rounded bg-header border border-border text-[10px] text-text-mid">
-            Checking backend…
-          </div>
-        )}
-      </motion.div>
     </AnimatePresence>
   );
 }
@@ -342,7 +280,7 @@ export default function Home() {
                   Logout
                 </a>
               </div>
-              <div className="mt-2 w-full max-w-[460px] rounded border border-border bg-header/80 px-4 py-3">
+              <div className="mt-2 w-full max-w-115 rounded border border-border bg-header/80 px-4 py-3">
                 <div className="text-[9px] uppercase tracking-wide text-text-mid mb-2">Preset test suites</div>
                 <div className="mb-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                   <label className="rounded border border-border px-3 py-2 bg-panel/60">
@@ -426,8 +364,6 @@ export default function Home() {
       </div>
 
       <StatusReadout visible={phase === 'ready'} />
-      <RunList visible={phase === 'ready'} />
-
       <AnimatePresence>
         {entering && (
           <motion.div
