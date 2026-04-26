@@ -51,7 +51,7 @@ export function toRunInfo(detail: any): RunSummary {
     checkpointId: detail.checkpoint_id ?? detail.checkpointId ?? null,
     bestScore: detail.best_score ?? detail.bestScore ?? null,
     status: detail.status ?? "unknown",
-    iteration: detail.iteration ?? 0,
+    iteration: detail.current_iteration ?? detail.iteration ?? 0,
   };
 }
 
@@ -127,11 +127,11 @@ export async function fetchMemory(namespace: string, limit = 50): Promise<unknow
 // available" placeholder instead of a hardcoded fixture that would
 // display next to real candidate names from a live run.
 
-export function getDiff(_candidateName: string): string | null {
+export function getDiff(): string | null {
   return null;
 }
 
-export function getTestOutput(_candidateName: string): string | null {
+export function getTestOutput(): string | null {
   return null;
 }
 

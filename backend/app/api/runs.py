@@ -290,7 +290,13 @@ def get_run_record(run_id: str) -> RunRecord | None:
 
 
 def get_run_dir(request: Request, run_id: str) -> Path:
-    run_dir = _repo_root(request) / "runs" / run_id
+    try:
+        run_dir = runs_mod.make_run_path(_repo_root(request), run_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="run not found",
+        ) from None
     if not run_dir.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
     return run_dir
@@ -359,8 +365,14 @@ async def create_run(
     response: Response,
 ) -> dict[str, Any]:
     repo_root = _repo_root(request)
-    run_id = payload.run_name or _generated_run_id()
-    run_dir = repo_root / "runs" / run_id
+    run_id = payload.run_name if payload.run_name is not None else _generated_run_id()
+    try:
+        run_dir = runs_mod.make_run_path(repo_root, run_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from None
     if run_id in run_registry and run_registry[run_id].task is not None:
         task = run_registry[run_id].task
         if not task.done():

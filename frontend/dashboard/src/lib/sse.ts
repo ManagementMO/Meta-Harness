@@ -62,6 +62,7 @@ export function subscribeToRun(
 // ── Convenience wrappers used by the dashboard page ──
 
 import type { Dispatch } from "react";
+import { demoFixtureState } from "./state";
 import type { DashboardAction } from "./types";
 import type { TreeNode, LogEntry, ForkEvent, RunSummary } from "./types";
 
@@ -96,8 +97,27 @@ export function startSSE(
 
 export function startMockSSE(
   dispatch: Dispatch<DashboardAction>,
-  _seconds: number,
+  seconds: number,
 ): () => void {
+  void seconds;
+  if (demoFixtureState.run) {
+    dispatch({ type: "SET_RUN", payload: demoFixtureState.run });
+  }
+  if (demoFixtureState.tree) {
+    dispatch({ type: "SET_TREE", payload: demoFixtureState.tree });
+  }
+  if (demoFixtureState.iterations) {
+    dispatch({ type: "SET_ITERATIONS", payload: demoFixtureState.iterations });
+  }
+  if (demoFixtureState.logEntries) {
+    dispatch({ type: "SET_LOG_ENTRIES", payload: demoFixtureState.logEntries });
+  }
+  for (const fork of demoFixtureState.forkEvents ?? []) {
+    dispatch({ type: "ADD_FORK_EVENT", payload: fork });
+  }
+  if (demoFixtureState.selectedNode) {
+    dispatch({ type: "SELECT_NODE", payload: demoFixtureState.selectedNode });
+  }
   dispatch({ type: "SET_SSE_CONNECTED", payload: true });
   return () => {};
 }
