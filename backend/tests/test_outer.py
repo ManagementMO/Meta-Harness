@@ -24,11 +24,11 @@ from app.meta_harness.outer import run_outer_loop  # noqa: E402
 from app.meta_harness.runs import make_run_dir  # noqa: E402
 
 
-def test_mock_outer_loop_produces_all_files(tmp_path: Path):
+async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
     run_dir = make_run_dir(tmp_path, "test-outer", fresh=True)
     eval_tasks_dir = REPO_ROOT / "eval" / "tasks"
 
-    final = run_outer_loop(
+    final = await run_outer_loop(
         run_dir=run_dir,
         repo_root=REPO_ROOT,
         eval_tasks_dir=eval_tasks_dir,

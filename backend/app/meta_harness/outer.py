@@ -1,20 +1,25 @@
 """Outer-loop state machine: ``propose → validate → benchmark → update_frontier``.
 
-Per Appendix B §B.6.1 / INTERFACES.md §1.1. Step 5 wires the graph with
-mock proposer + optional mock benchmark for fast verification. Real
-benchmark integration runs the inner loop per (candidate × task × trial)
-and lands when the proposer goes real (step 6+).
+Per Appendix B §B.6.1 / INTERFACES.md §1.1. **All nodes are async**
+(step 7 refactor) so the outer graph integrates cleanly with
+``AsyncPostgresSaver`` and concurrent branches (Appendix A).
+
+The ``benchmark`` node uses ``asyncio.Semaphore`` for bounded
+concurrency over (task × trial) tuples — explicitly **not**
+``asyncio.gather`` over branches that may interrupt (per Appendix A
+§A.4 Gotcha 2). Inner-loop trials don't use ``interrupt()``, so
+gather over them is safe.
 """
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
@@ -27,18 +32,15 @@ from app.meta_harness.sandbox import sandbox_for
 from app.meta_harness.state import MetaHarnessState
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Outer node bodies (closure-built in OuterLoopRunner).
-# ──────────────────────────────────────────────────────────────────────
-
-
 class OuterLoopRunner:
     """Builds the outer LangGraph for one run.
 
     Flags:
     - ``mock_proposer``: use ``proposer.mock_propose`` (step 5).
     - ``mock_bench``: skip the inner loop and synthesize scores per
-      candidate (step 5 fast-path).
+      candidate (fast outer-loop testing).
+    - ``checkpointer``: ``AsyncPostgresSaver`` (step 7) or ``None`` for
+      in-memory.
     """
 
     def __init__(
@@ -52,6 +54,7 @@ class OuterLoopRunner:
         trials: int,
         bench_workers: int,
         skill_path: Path | None = None,
+        checkpointer: Any = None,
     ) -> None:
         self.run_dir = run_dir
         self.repo_root = repo_root
@@ -61,14 +64,16 @@ class OuterLoopRunner:
         self.trials = trials
         self.bench_workers = bench_workers
         self.skill_path = skill_path
+        self.checkpointer = checkpointer
 
     # ── propose ───────────────────────────────────────────────────────
 
-    def propose(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def propose(self, state: MetaHarnessState) -> dict[str, Any]:
         iteration = state["iteration"] + 1
         parent_name = state.get("best_candidate")
         if self.mock_proposer:
-            payload = prp.mock_propose(
+            payload = await asyncio.to_thread(
+                prp.mock_propose,
                 run_dir=self.run_dir,
                 iteration=iteration,
                 parent_name=parent_name,
@@ -77,7 +82,10 @@ class OuterLoopRunner:
         else:
             if self.skill_path is None:
                 raise ValueError("skill_path required for non-mock proposer")
-            payload = prp.claude_propose(
+            # claude_propose spawns a subprocess. Wrap in to_thread to
+            # avoid blocking the outer event loop while it runs.
+            payload = await asyncio.to_thread(
+                prp.claude_propose,
                 run_dir=self.run_dir,
                 iteration=iteration,
                 parent_name=parent_name,
@@ -85,7 +93,6 @@ class OuterLoopRunner:
                 skill_path=self.skill_path,
                 proposer_prior=state.get("proposer_prior", ""),
             )
-        # State carries the candidate dicts (from pending_eval.json).
         new_candidates = list(state.get("candidates") or [])
         for c in payload["candidates"]:
             new_candidates.append(
@@ -107,21 +114,20 @@ class OuterLoopRunner:
 
     # ── validate ──────────────────────────────────────────────────────
 
-    def validate(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def validate(self, state: MetaHarnessState) -> dict[str, Any]:
         candidate = state["candidates"][-1]
-        # Repo root must be on sys.path so ``agents.<n>`` imports work.
         if str(self.repo_root) not in sys.path:
             sys.path.insert(0, str(self.repo_root))
         module_path, _, class_name = candidate["import_path"].partition(":")
         try:
-            mod = importlib.import_module(module_path)
+            mod = await asyncio.to_thread(importlib.import_module, module_path)
             cls = getattr(mod, class_name)
-            assert issubclass(cls, CodingAgentHarness) or cls.__name__.startswith("MockHarness"), (
-                f"{candidate['import_path']} is not a CodingAgentHarness subclass"
-            )
+            assert issubclass(cls, CodingAgentHarness) or cls.__name__.startswith(
+                "MockHarness"
+            ), f"{candidate['import_path']} is not a CodingAgentHarness subclass"
             candidate["status"] = "pending"
             valid = True
-        except Exception as exc:  # noqa: BLE001 — we want to record any error
+        except Exception as exc:  # noqa: BLE001 — record any error
             candidate["status"] = "smoke_failed"
             candidate["scores"] = {"error": str(exc)}
             valid = False
@@ -129,7 +135,7 @@ class OuterLoopRunner:
 
     # ── benchmark ─────────────────────────────────────────────────────
 
-    def benchmark(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def benchmark(self, state: MetaHarnessState) -> dict[str, Any]:
         candidate = state["candidates"][-1]
         if candidate["status"] == "smoke_failed":
             return {"candidates": state["candidates"]}
@@ -145,9 +151,6 @@ class OuterLoopRunner:
         total_obs = 0
 
         if self.mock_bench:
-            # Synthesize scores: each iteration's candidate gets a
-            # visible accuracy bump (rounding to N/5 trials means we
-            # need ≥0.20 spread between iterations to see arc movement).
             base_acc = 0.60
             bump_per_iter = 0.20
             iteration = state["iteration"]
@@ -159,10 +162,9 @@ class OuterLoopRunner:
                 per_task[td.name] = {"pass_rate": pr, "trials": trials}
                 total_passes += sum(trials)
                 total_obs += len(trials)
-            avg_tokens = 24000 + (iteration * 800)  # synthetic token count
+            avg_tokens = 24000 + (iteration * 800)
             wall_time_s = 0.05 * n_tasks * self.trials
         else:
-            # Real benchmark: spawn inner loop per (task × trial).
             module_path, _, class_name = candidate["import_path"].partition(":")
             mod = importlib.import_module(module_path)
             harness_class = getattr(mod, class_name)
@@ -175,7 +177,9 @@ class OuterLoopRunner:
             ]
             results: dict[str, list[bool]] = {td.name: [False] * self.trials for td in task_dirs}
 
-            def _one_trial(td: Path, spec: dict, trial_idx: int) -> tuple[str, int, bool]:
+            sem = asyncio.Semaphore(self.bench_workers)
+
+            async def _one_trial(td: Path, spec: dict, trial_idx: int) -> tuple[str, int, bool]:
                 task_id = td.name
                 trace_dir = (
                     self.run_dir
@@ -184,27 +188,32 @@ class OuterLoopRunner:
                     / "traces"
                     / f"{task_id}-trial-{trial_idx}"
                 )
-                harness = harness_class()
-                with sandbox_for(td / "workspace") as sandbox:
-                    final = run_inner_loop(
-                        harness,
-                        task_dict=spec,
-                        workspace=sandbox,
-                        trace_dir=trace_dir,
-                        thread_id=f"outer-{candidate['name']}-{task_id}-trial-{trial_idx}",
-                    )
+                async with sem:
+                    harness = harness_class()
+                    with sandbox_for(td / "workspace") as sandbox:
+                        final = await run_inner_loop(
+                            harness,
+                            task_dict=spec,
+                            workspace=sandbox,
+                            trace_dir=trace_dir,
+                            thread_id=(
+                                f"bench-{candidate['name']}-{task_id}-trial-{trial_idx}"
+                            ),
+                        )
                 return task_id, trial_idx, (final.get("score") or 0.0) >= 1.0
 
-            with ThreadPoolExecutor(max_workers=self.bench_workers) as pool:
-                futures = [pool.submit(_one_trial, td, spec, t) for td, spec, t in work]
-                for fut in as_completed(futures):
-                    task_id, trial_idx, passed = fut.result()
-                    results[task_id][trial_idx - 1] = passed
-            for task_id, trial_results in results.items():
-                pr = sum(trial_results) / len(trial_results)
-                per_task[task_id] = {"pass_rate": pr, "trials": trial_results}
-                total_passes += sum(trial_results)
-                total_obs += len(trial_results)
+            trial_results = await asyncio.gather(
+                *[_one_trial(td, spec, t) for td, spec, t in work],
+                return_exceptions=False,
+            )
+            for task_id, trial_idx, passed in trial_results:
+                results[task_id][trial_idx - 1] = passed
+
+            for task_id, ts in results.items():
+                pr = sum(ts) / len(ts)
+                per_task[task_id] = {"pass_rate": pr, "trials": ts}
+                total_passes += sum(ts)
+                total_obs += len(ts)
             avg_tokens = 0
             wall_time_s = round(time.monotonic() - started, 2)
 
@@ -230,11 +239,8 @@ class OuterLoopRunner:
 
     # ── update_frontier ───────────────────────────────────────────────
 
-    def update_frontier(self, state: MetaHarnessState) -> dict[str, Any]:
+    async def update_frontier(self, state: MetaHarnessState) -> dict[str, Any]:
         candidate = state["candidates"][-1]
-        # Build the candidates list for Pareto computation. Include any
-        # candidate that has been scored — its current status may already
-        # be "accepted" or "rejected" from a prior iteration.
         scored_statuses = {"evaluated", "accepted", "rejected"}
         evaluated = [
             {
@@ -260,7 +266,6 @@ class OuterLoopRunner:
         frontier = fr.build_frontier_val(state["iteration"], evaluated, per_task_bests)
         runs_mod.write_frontier(self.run_dir, frontier)
 
-        # Determine new best + delta + accept/reject.
         prev_best = state.get("best_candidate")
         prev_best_acc = 0.0
         for c in state["candidates"]:
@@ -275,7 +280,6 @@ class OuterLoopRunner:
         )
         candidate["status"] = "accepted" if accepted else "rejected"
 
-        # status.json per candidate
         runs_mod.write_status(
             self.run_dir,
             candidate["name"],
@@ -288,7 +292,6 @@ class OuterLoopRunner:
             },
         )
 
-        # evolution_summary.jsonl row
         row = {
             "iteration": state["iteration"],
             "candidate": candidate["name"],
@@ -296,7 +299,10 @@ class OuterLoopRunner:
             "parent_candidate_name": candidate.get("parent"),
             "axis": candidate.get("axis"),
             "hypothesis": candidate.get("hypothesis", ""),
-            "scores": {"accuracy": cand_acc, "per_task": (candidate["scores"] or {}).get("per_task", {})},
+            "scores": {
+                "accuracy": cand_acc,
+                "per_task": (candidate["scores"] or {}).get("per_task", {}),
+            },
             "delta": candidate["delta"],
             "outcome": (
                 f"{cand_acc:.1%} ({candidate['delta']:+.1%})" if cand_acc else "failed"
@@ -336,10 +342,14 @@ class OuterLoopRunner:
             self._route_after_update,
             {"propose": "propose", "end": END},
         )
-        return g.compile()
+        return (
+            g.compile(checkpointer=self.checkpointer)
+            if self.checkpointer is not None
+            else g.compile()
+        )
 
 
-def run_outer_loop(
+async def run_outer_loop(
     *,
     run_dir: Path,
     repo_root: Path,
@@ -350,8 +360,9 @@ def run_outer_loop(
     bench_workers: int,
     budget: int,
     skill_path: Path | None = None,
+    checkpointer: Any = None,
 ) -> MetaHarnessState:
-    """Run the outer loop end-to-end. Returns the final state."""
+    """Run the outer loop end-to-end (async). Returns the final state."""
     runner = OuterLoopRunner(
         run_dir=run_dir,
         repo_root=repo_root,
@@ -361,6 +372,7 @@ def run_outer_loop(
         trials=trials,
         bench_workers=bench_workers,
         skill_path=skill_path,
+        checkpointer=checkpointer,
     )
     runs_mod.write_manifest(
         run_dir,
@@ -380,8 +392,48 @@ def run_outer_loop(
         "proposer_prior": "",
     }
     graph = runner.build()
-    final = graph.invoke(
+    final = await graph.ainvoke(
         initial,
+        config={"configurable": {"thread_id": run_dir.name}, "recursion_limit": 200},
+    )
+    return final  # type: ignore[return-value]
+
+
+async def resume_outer_loop(
+    *,
+    run_dir: Path,
+    repo_root: Path,
+    eval_tasks_dir: Path,
+    checkpointer: Any,
+    skill_path: Path | None = None,
+) -> MetaHarnessState:
+    """Resume an interrupted run from its last Postgres checkpoint.
+
+    Reads the run's manifest.json to recover the original config
+    (mock_proposer, mock_bench, trials, etc.) and resumes via
+    ``graph.ainvoke(None, config={"thread_id": run_dir.name})``.
+    """
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"manifest.json missing in {run_dir}; cannot resume without run config"
+        )
+    manifest = json.loads(manifest_path.read_text())
+    runner = OuterLoopRunner(
+        run_dir=run_dir,
+        repo_root=repo_root,
+        eval_tasks_dir=eval_tasks_dir,
+        mock_proposer=manifest.get("mock_proposer", False),
+        mock_bench=manifest.get("mock_bench", False),
+        trials=manifest.get("trials", 5),
+        bench_workers=3,
+        skill_path=skill_path,
+        checkpointer=checkpointer,
+    )
+    graph = runner.build()
+    # ``None`` input + existing thread_id → resume from last checkpoint.
+    final = await graph.ainvoke(
+        None,
         config={"configurable": {"thread_id": run_dir.name}, "recursion_limit": 200},
     )
     return final  # type: ignore[return-value]

@@ -1,15 +1,19 @@
 """Inner-loop state machine: ``orient → plan → act → verify → submit``.
 
-Per Appendix C §C.8 / INTERFACES.md §1.2. Each phase is a node;
-transitions are checkpointed (the AsyncPostgresSaver lands at step 7).
-For now, ``build_inner_graph`` compiles with no checkpointer so step-3
-runs are fast and self-contained.
+Per Appendix C §C.8 / INTERFACES.md §1.2. **All nodes are async** so
+the inner graph can be checkpointed via ``AsyncPostgresSaver`` (step 7)
+and forks can run concurrently via ``asyncio.create_task`` (step 9).
+
+Node bodies still issue some sync subprocess calls (``find``, ``pytest``)
+because their wall time is short and bounded; we accept the brief
+event-loop block. Use ``asyncio.to_thread`` if a future change makes
+these long-running.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -29,7 +33,7 @@ ACT_TOOLS = TOOL_SCHEMAS  # all 6 fixed tools incl. task_complete
 
 
 def _depth_limited_tree(workspace: Path, max_depth: int = 3) -> str:
-    """Build a depth-limited workspace tree (best-effort)."""
+    """Build a depth-limited workspace tree (best-effort, sync)."""
     try:
         proc = subprocess.run(
             [
@@ -56,10 +60,10 @@ def _depth_limited_tree(workspace: Path, max_depth: int = 3) -> str:
         return ""
 
 
-def orient(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
+async def orient(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
     """Phase 1: build initial context for the planner."""
     workspace = Path(state["workspace_path"])
-    tree = _depth_limited_tree(workspace)
+    tree = await asyncio.to_thread(_depth_limited_tree, workspace)
 
     has_python = (workspace / "pyproject.toml").exists() or any(
         workspace.rglob("*.py")
@@ -70,7 +74,7 @@ def orient(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, An
     }
 
     tests: dict[str, str] = {}
-    for test_file in list(workspace.rglob("test_*.py"))[:10]:  # cap at 10
+    for test_file in list(workspace.rglob("test_*.py"))[:10]:
         if test_file.is_file():
             try:
                 tests[str(test_file.relative_to(workspace))] = test_file.read_text()[
@@ -112,8 +116,8 @@ def orient(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, An
 # ──────────────────────────────────────────────────────────────────────
 
 
-def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
-    """Phase 2: produce a structured plan via forced tool call."""
+async def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
+    """Phase 2: produce a structured plan via forced tool call (async)."""
     summary = state["orient_summary"] or {}
     instruction = state["task"]["instruction"]
 
@@ -128,7 +132,7 @@ def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]
     )
 
     messages = [{"role": "user", "content": prompt}]
-    response = harness._client.messages.create(
+    response = await harness._client.messages.create(
         model=harness.MODEL,
         max_tokens=harness.MAX_TOKENS,
         messages=messages,
@@ -151,7 +155,7 @@ def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Phase 3 — act (bounded ReAct)
+# Phase 3 — act (bounded ReAct, async)
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -170,14 +174,13 @@ def _serialize_block(block: Any) -> dict[str, Any]:
     return {"type": str(btype), "raw": str(block)}
 
 
-def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
-    """Phase 3: bounded ReAct over the 6 fixed tools."""
+async def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
+    """Phase 3: bounded ReAct over the 6 fixed tools (async)."""
     workspace = Path(state["workspace_path"])
     plan_dict = state["plan"] or {}
     trace_dir = _trace_dir_or_none(state)
     tool_log_path = (trace_dir / "act-tools.jsonl") if trace_dir else None
 
-    # On first entry the messages list is empty → seed with the act prompt.
     messages = list(state.get("messages") or [])
     if not messages:
         messages.append(
@@ -188,11 +191,10 @@ def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
     act_complete = False
 
     while turn_count < harness.MAX_ACT_TURNS:
-        # Context overflow guard
         if len(messages) > 40:
             messages = harness._summarize_for_overflow(messages)
 
-        response = harness._call_llm(messages, ACT_TOOLS)
+        response = await harness._call_llm(messages, ACT_TOOLS)
 
         assistant_blocks: list[dict[str, Any]] = []
         tool_uses: list[Any] = []
@@ -204,7 +206,6 @@ def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
         messages.append({"role": "assistant", "content": assistant_blocks})
 
         if not tool_uses:
-            # No tool call → model is done speaking; fall through to verify.
             break
 
         tool_results: list[dict[str, Any]] = []
@@ -229,7 +230,12 @@ def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
                     )
                 continue
 
-            result = execute_tool(tu.name, workspace, **dict(tu.input))
+            # Tool dispatch is sync (subprocess-based). Wrap in
+            # to_thread so we don't block the event loop on long
+            # bash commands.
+            result = await asyncio.to_thread(
+                execute_tool, tu.name, workspace, **dict(tu.input)
+            )
             formatted = harness._format_tool_result(tu.name, result)
             is_error = result.get("status") == "error"
             tool_results.append(
@@ -290,13 +296,10 @@ def _append_tool_log(
 # ──────────────────────────────────────────────────────────────────────
 
 
-def verify(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
-    """Phase 4: run the task's test_command + persist verify.json."""
-    workspace = Path(state["workspace_path"])
-    test_command = state["task"].get("test_command", "pytest -q")
-
+def _run_verify_subprocess(workspace: Path, test_command: str) -> tuple[bool, str]:
+    """Sync helper for verify (called via asyncio.to_thread)."""
     try:
-        proc = subprocess.run(  # noqa: S602 — test command from task spec
+        proc = subprocess.run(  # noqa: S602 — test_command from task spec
             test_command,
             shell=True,
             cwd=workspace,
@@ -306,20 +309,27 @@ def verify(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, An
             errors="replace",
             timeout=60,
         )
-        tests_pass = proc.returncode == 0
-        out = (proc.stdout + "\n" + proc.stderr)[-2000:]
+        return proc.returncode == 0, (proc.stdout + "\n" + proc.stderr)[-2000:]
     except subprocess.TimeoutExpired as exc:
-        tests_pass = False
-        out = (
-            (exc.stdout.decode("utf-8", "replace") if exc.stdout else "")
-            + (exc.stderr.decode("utf-8", "replace") if exc.stderr else "")
-            + "\n[timeout]"
-        )[-2000:]
+        out = (exc.stdout.decode("utf-8", "replace") if exc.stdout else "") + (
+            exc.stderr.decode("utf-8", "replace") if exc.stderr else ""
+        )
+        return False, (out + "\n[timeout]")[-2000:]
+
+
+async def verify(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
+    """Phase 4: run the task's test_command + persist verify.json."""
+    workspace = Path(state["workspace_path"])
+    test_command = state["task"].get("test_command", "pytest -q")
+
+    tests_pass, output = await asyncio.to_thread(
+        _run_verify_subprocess, workspace, test_command
+    )
 
     verify_result = {
         "tests_pass": tests_pass,
         "tests_failed": [],
-        "test_output": out,
+        "test_output": output,
         "lint_pass": True,
         "lint_errors": [],
         "out_of_plan_changes": [],
@@ -340,7 +350,7 @@ def verify(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, An
 # ──────────────────────────────────────────────────────────────────────
 
 
-def submit(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
+async def submit(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
     """Phase 5: snapshot workspace, write score.json + summary.md +
     final-files.json."""
     workspace = Path(state["workspace_path"])
@@ -399,19 +409,41 @@ def _route_after_verify(state: CodingAgentState) -> str:
     if verify_result.get("tests_pass", False):
         return "submit"
     if state.get("verify_attempts", 0) >= 3:
-        # Exhausted retries; submit anyway.
         return "submit"
     return "act"
 
 
-def build_inner_graph(harness: CodingAgentHarness) -> Any:
-    """Compile the inner-loop ``StateGraph`` for a given harness."""
+def build_inner_graph(harness: CodingAgentHarness, *, checkpointer: Any = None) -> Any:
+    """Compile the inner-loop ``StateGraph``. ``checkpointer`` is passed
+    through to ``compile()``; ``None`` means no checkpointer (in-memory
+    only, used by tests and by mock-bench).
+
+    Wraps each phase function in an async closure that captures
+    ``harness`` — sync lambdas would return coroutines without awaiting,
+    which LangGraph rejects as ``InvalidUpdateError``.
+    """
+
+    async def _orient(s: CodingAgentState) -> dict[str, Any]:
+        return await orient(s, harness)
+
+    async def _plan(s: CodingAgentState) -> dict[str, Any]:
+        return await plan(s, harness)
+
+    async def _act(s: CodingAgentState) -> dict[str, Any]:
+        return await act(s, harness)
+
+    async def _verify(s: CodingAgentState) -> dict[str, Any]:
+        return await verify(s, harness)
+
+    async def _submit(s: CodingAgentState) -> dict[str, Any]:
+        return await submit(s, harness)
+
     g: StateGraph = StateGraph(CodingAgentState)
-    g.add_node("orient", lambda s: orient(s, harness))
-    g.add_node("plan", lambda s: plan(s, harness))
-    g.add_node("act", lambda s: act(s, harness))
-    g.add_node("verify", lambda s: verify(s, harness))
-    g.add_node("submit", lambda s: submit(s, harness))
+    g.add_node("orient", _orient)
+    g.add_node("plan", _plan)
+    g.add_node("act", _act)
+    g.add_node("verify", _verify)
+    g.add_node("submit", _submit)
 
     g.add_edge(START, "orient")
     g.add_edge("orient", "plan")
@@ -423,7 +455,7 @@ def build_inner_graph(harness: CodingAgentHarness) -> Any:
         {"act": "act", "submit": "submit"},
     )
     g.add_edge("submit", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer) if checkpointer else g.compile()
 
 
 def _trace_dir_or_none(state: CodingAgentState) -> Path | None:
@@ -431,16 +463,16 @@ def _trace_dir_or_none(state: CodingAgentState) -> Path | None:
     return Path(raw) if raw else None
 
 
-def run_inner_loop(
+async def run_inner_loop(
     harness: CodingAgentHarness,
     *,
     task_dict: dict[str, Any],
     workspace: Path,
     trace_dir: Path | None = None,
     thread_id: str = "inner-trial-1",
+    checkpointer: Any = None,
 ) -> CodingAgentState:
-    """Run one inner-loop trial against ``workspace`` and return the
-    final state."""
+    """Run one inner-loop trial. Async."""
     if trace_dir is not None:
         trace_dir.mkdir(parents=True, exist_ok=True)
         task_dict = dict(task_dict)
@@ -459,8 +491,8 @@ def run_inner_loop(
         "score": None,
     }
 
-    graph = build_inner_graph(harness)
-    final_state = graph.invoke(
+    graph = build_inner_graph(harness, checkpointer=checkpointer)
+    final_state = await graph.ainvoke(
         initial_state,
         config={"configurable": {"thread_id": thread_id}, "recursion_limit": 100},
     )
