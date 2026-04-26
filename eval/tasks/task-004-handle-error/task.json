@@ -1,9 +1,10 @@
 {
   "id": "task-004-handle-error",
   "tier": "robustness",
-  "instruction": "parse_ages in parser.py crashes on (a) empty input '' (raises ValueError on int('')) and (b) invalid integer tokens like 'abc'. Modify parse_ages so: empty input returns []; invalid tokens are silently skipped; valid integers are still parsed correctly. All tests in tests/test_parser.py must pass without breaking the happy path.",
+  "instruction": "parse_ages in parser.py crashes on (a) empty input '' (raises ValueError on int('')) and (b) invalid integer tokens like 'abc'. Modify parse_ages so: empty input returns []; pure-whitespace input returns []; invalid tokens are silently skipped; negative integers like '-5' parse correctly; decimal tokens like '1.5' are skipped (NOT converted with float()); valid integers are still parsed correctly. All tests in tests/test_parser.py must pass without breaking the happy path.",
   "test_command": "pytest tests/test_parser.py -q",
   "expected_files_changed": ["parser.py"],
-  "baseline_pass_rate": 0.40,
-  "best_known_pass_rate": 0.80
+  "baseline_pass_rate": 0.60,
+  "best_known_pass_rate": 0.85,
+  "calibration_note": "Hardened 2026-04-25 (option 3). Added: negative-int parse, pure-whitespace returns empty, decimals skipped (anti-float() trap). See docs/PROJECT_KNOWLEDGE_BASE.md §28.4."
 }

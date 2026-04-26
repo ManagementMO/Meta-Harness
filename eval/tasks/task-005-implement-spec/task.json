@@ -1,9 +1,10 @@
 {
   "id": "task-005-implement-spec",
   "tier": "multi-file",
-  "instruction": "Implement Point and Line classes in geometry/__init__.py per the spec in README.md. The tests in tests/test_geometry.py exercise the contract; all of them must pass. Do not modify the README or the tests.",
+  "instruction": "Implement Point and Line classes in geometry/__init__.py per the spec in README.md. Read the README carefully — pay special attention to: (a) the 1e-6 floating-point tolerance for Line.contains(), and (b) the case where Line.start == Line.end (zero-length segment, must not divide by zero). The tests in tests/test_geometry.py exercise the contract; all of them must pass. Do not modify the README or the tests.",
   "test_command": "pytest tests/test_geometry.py -q",
   "expected_files_changed": ["geometry/__init__.py"],
-  "baseline_pass_rate": 0.45,
-  "best_known_pass_rate": 0.85
+  "baseline_pass_rate": 0.55,
+  "best_known_pass_rate": 0.85,
+  "calibration_note": "Hardened 2026-04-25 (option 3). Added: floating-point-tolerance check (1e-6 per spec), zero-length-segment edge case. See docs/PROJECT_KNOWLEDGE_BASE.md §28.5."
 }
