@@ -1,6 +1,8 @@
 'use client';
 import { useState } from 'react';
+import { useParams } from 'next/navigation';
 import { useDashboardDispatch } from '@/lib/state';
+import { forkRun } from '@/lib/api';
 
 type ForkModalProps = {
   candidateName: string;
@@ -9,22 +11,43 @@ type ForkModalProps = {
 };
 
 export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalProps) {
+  const params = useParams<{ runId: string }>();
   const dispatch = useDashboardDispatch();
   const [prior, setPrior] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleCreate = () => {
-    if (!prior.trim()) return;
+  const handleCreate = async () => {
+    if (!prior.trim() || submitting) return;
+    setSubmitting(true);
+
+    const fallbackBranchId = `fork.${Math.random().toString(36).slice(2, 10)}`;
+    const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    let branchId = fallbackBranchId;
+    try {
+      const result = await forkRun(params.runId, {
+        parent_checkpoint_id: checkpointId,
+        mods: { proposer_prior: prior.trim() },
+        name: fallbackBranchId,
+      });
+      branchId = result.branch_id || fallbackBranchId;
+    } catch {
+      // Backend unavailable — fall back to local-only fork event
+    }
+
     dispatch({
       type: 'ADD_FORK_EVENT',
       payload: {
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        timestamp,
         parentCandidate: candidateName,
         checkpointId,
         prior: prior.trim(),
-        branchId: `fork.${Math.random().toString(36).slice(2, 10)}`,
+        branchId,
         rationale: 'Manual fork from dashboard',
       },
     });
+
+    setSubmitting(false);
     onClose();
   };
 
@@ -67,7 +90,7 @@ export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalPro
           </button>
           <button
             onClick={handleCreate}
-            disabled={!prior.trim()}
+            disabled={!prior.trim() || submitting}
             className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wide rounded bg-purple text-white disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90"
           >
             Create Fork
