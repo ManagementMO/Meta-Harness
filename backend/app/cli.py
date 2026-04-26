@@ -397,20 +397,39 @@ def loop(
             raise typer.Exit(2)
 
     async def _run() -> Any:
+        from app.meta_harness.memory import memory_store as _mem_store
+
         if persistent:
             async with persistence_layer() as saver:
-                return await run_outer_loop(
-                    run_dir=run_dir,
-                    repo_root=REPO_ROOT,
-                    eval_tasks_dir=eval_tasks_dir,
-                    mock_proposer=(proposer == "mock"),
-                    mock_bench=mock_bench,
-                    trials=trials,
-                    bench_workers=workers,
-                    budget=budget,
-                    skill_path=skill_path,
-                    checkpointer=saver,
-                )
+                try:
+                    async with _mem_store() as mstore:
+                        return await run_outer_loop(
+                            run_dir=run_dir,
+                            repo_root=REPO_ROOT,
+                            eval_tasks_dir=eval_tasks_dir,
+                            mock_proposer=(proposer == "mock"),
+                            mock_bench=mock_bench,
+                            trials=trials,
+                            bench_workers=workers,
+                            budget=budget,
+                            skill_path=skill_path,
+                            checkpointer=saver,
+                            memory_store=mstore,
+                        )
+                except Exception:  # noqa: BLE001
+                    # Fall back to no-memory if PostgresStore fails.
+                    return await run_outer_loop(
+                        run_dir=run_dir,
+                        repo_root=REPO_ROOT,
+                        eval_tasks_dir=eval_tasks_dir,
+                        mock_proposer=(proposer == "mock"),
+                        mock_bench=mock_bench,
+                        trials=trials,
+                        bench_workers=workers,
+                        budget=budget,
+                        skill_path=skill_path,
+                        checkpointer=saver,
+                    )
         return await run_outer_loop(
             run_dir=run_dir,
             repo_root=REPO_ROOT,
@@ -511,6 +530,41 @@ def _find_harness_class(mod) -> type | None:
         ):
             return obj
     return None
+
+
+# ── memory sub-app (step 8) ──────────────────────────────────────────
+
+memory_app = typer.Typer(
+    name="memory",
+    help="Cross-run memory commands (PostgresStore).",
+    no_args_is_help=True,
+)
+app.add_typer(memory_app, name="memory")
+
+
+@memory_app.command("list")
+def memory_list(
+    namespace: str = typer.Option(
+        "coding-agent",
+        "--namespace",
+        help="Domain namespace to list (e.g. 'coding-agent').",
+    ),
+    limit: int = typer.Option(50, "--limit", help="Max entries to return."),
+) -> None:
+    """List all learned patterns in a namespace."""
+    import asyncio
+
+    from app.meta_harness.memory import list_namespace, memory_store
+
+    async def _run() -> list:
+        async with memory_store() as store:
+            return await list_namespace(store, domain=namespace, limit=limit)
+
+    entries = asyncio.run(_run())
+    if not entries:
+        typer.echo(f"No patterns in namespace ('learned_patterns', '{namespace}').")
+        return
+    typer.echo(json.dumps(entries, indent=2, default=str))
 
 
 def main() -> None:
