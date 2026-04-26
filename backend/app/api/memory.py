@@ -93,9 +93,16 @@ async def search_memory(
             "implemented": False,
         }
     try:
-        # Same kwarg-positional fix as ``list_memory`` above.
+        # Same kwarg-positional fix as ``list_memory`` above. Now also
+        # forwards the request payload's ``query`` so the endpoint
+        # actually filters instead of returning recency-top-N regardless
+        # of the query (previously the query was echoed back but ignored
+        # — same silent-pass bug class as the kwarg fix).
         patterns = await search_patterns(
-            store, domain=namespace, limit=payload.limit
+            store,
+            domain=namespace,
+            limit=payload.limit,
+            query=payload.query or None,
         )
         return {
             "namespace": _namespace(namespace),

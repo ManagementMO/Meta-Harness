@@ -405,27 +405,31 @@ def loop(
             raise typer.Exit(2)
 
     async def _run() -> Any:
+        # Open the memory store FIRST so its failure mode is isolated
+        # from the loop body. Previously a single ``try`` wrapped both
+        # the store entry AND ``run_outer_loop``, so any node-body
+        # exception silently fell through to a second loop invocation
+        # with memory dropped (double-spending the LLM budget and
+        # masking the original error).
         from app.meta_harness.memory import memory_store as _mem_store
+        import logging
+
+        log = logging.getLogger("meta_harness.cli")
 
         if persistent:
             async with persistence_layer() as saver:
+                mstore = None
                 try:
-                    async with _mem_store() as mstore:
-                        return await run_outer_loop(
-                            run_dir=run_dir,
-                            repo_root=REPO_ROOT,
-                            eval_tasks_dir=eval_tasks_dir,
-                            mock_proposer=(proposer == "mock"),
-                            mock_bench=mock_bench,
-                            trials=trials,
-                            bench_workers=workers,
-                            budget=budget,
-                            skill_path=skill_path,
-                            checkpointer=saver,
-                            memory_store=mstore,
-                        )
-                except Exception:  # noqa: BLE001
-                    # Fall back to no-memory if PostgresStore fails.
+                    mstore_cm = _mem_store()
+                    mstore = await mstore_cm.__aenter__()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "memory store unavailable (%s); proceeding without it. "
+                        "The cross-run memory beat will be skipped this run.",
+                        type(exc).__name__,
+                    )
+                    mstore_cm = None
+                try:
                     return await run_outer_loop(
                         run_dir=run_dir,
                         repo_root=REPO_ROOT,
@@ -437,7 +441,14 @@ def loop(
                         budget=budget,
                         skill_path=skill_path,
                         checkpointer=saver,
+                        memory_store=mstore,
                     )
+                finally:
+                    if mstore_cm is not None:
+                        try:
+                            await mstore_cm.__aexit__(None, None, None)
+                        except Exception:  # noqa: BLE001
+                            pass
         return await run_outer_loop(
             run_dir=run_dir,
             repo_root=REPO_ROOT,

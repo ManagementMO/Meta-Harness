@@ -97,16 +97,22 @@ async def search_patterns(
     *,
     domain: str = DEFAULT_DOMAIN,
     limit: int = 5,
+    query: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the top-N most recent patterns for a domain.
+    """Return the top-N most recent patterns for a domain, optionally
+    filtered by ``query``.
 
-    Uses ``asearch`` with ``limit``; results come back in store order
-    (insertion order ≈ recency). We reverse to put newest first and
-    return compact dicts suitable for injection into the proposer's
-    system prompt.
+    Uses ``asearch`` with a wide pre-filter ``limit`` so a query that
+    matches few rows can still scan past stale ones; the final
+    ``limit`` is then applied. ``query`` is matched as a
+    case-insensitive substring against the ``pattern`` and
+    ``mechanism_axis`` fields. Pass ``query=None`` (the default) to
+    skip filtering — that's the recency-weighted top-N path the
+    proposer uses.
     """
     ns = _namespace(domain)
-    items = await store.asearch(ns, limit=limit)
+    pre_limit = limit if query is None else max(limit * 20, 100)
+    items = await store.asearch(ns, limit=pre_limit)
     results = []
     for item in items:
         val = item.value if hasattr(item, "value") else item
@@ -117,6 +123,14 @@ async def search_patterns(
                     **val,
                 }
             )
+    if query:
+        needle = query.lower()
+        results = [
+            r
+            for r in results
+            if needle in str(r.get("pattern", "")).lower()
+            or needle in str(r.get("mechanism_axis", "")).lower()
+        ]
     # Sort by created_at descending (newest first) for recency weighting.
     results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
     return results[:limit]

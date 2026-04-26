@@ -110,7 +110,28 @@ const initialLogEntries: LogEntry[] = [
   { id: "log-6", timestamp: "14:32:43", tag: "score", text: "accuracy=0.80 (+0.06) NEW BEST", candidateName: "more-specific-descriptions" },
 ];
 
+// Default state: empty. Components render empty / placeholder UI until
+// SSE feeds real data from the backend (see lib/sse.ts → subscribeToRun).
+//
+// We DO export ``demoFixtureState`` below as an opt-in seed for the
+// "Demo Mode" landing page or pure-static screenshots — it must NEVER
+// be the default for an actual run page; previous reviewer found that
+// a real run loaded against the seeded fake tree displayed real and
+// fake candidates intermixed.
 const initialState: DashboardState = {
+  run: null,
+  tree: [],
+  iterations: [],
+  logEntries: [],
+  forkEvents: [],
+  filters: { activeFilter: "all", searchQuery: "" },
+  contextTab: "chart",
+  selectedNode: null,
+  selectedLogLine: null,
+  sseConnected: false,
+};
+
+export const demoFixtureState: Partial<DashboardState> = {
   run: {
     runId: "demo-2026-04-25",
     threadId: "demo-2026-04-25",
@@ -130,14 +151,11 @@ const initialState: DashboardState = {
       checkpointId: "ckpt_2c81ef03",
       prior: "explore example-driven prompts instead of hash-based dedup",
       branchId: "fork.abc12345",
-      rationale: "iteration 2's hash-strictness regressed; try the orthogonal direction",
+      rationale:
+        "iteration 2's hash-strictness regressed; try the orthogonal direction",
     },
   ],
-  filters: { activeFilter: "all", searchQuery: "" },
-  contextTab: "chart",
   selectedNode: "more-specific-descriptions",
-  selectedLogLine: null,
-  sseConnected: false,
 };
 
 function reducer(state: DashboardState, action: DashboardAction): DashboardState {
