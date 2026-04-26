@@ -8,7 +8,7 @@ Conventions:
 - All paths are repo-root-relative.
 - "Done when" is one literal command (or a tight `&&`-chain) whose
   exit status proves the slice works.
-- "Unblocks" lists step numbers that depend on this one.
+- "Unblocks" listj s step numbers that depend on this one.
 - Terminology in this doc matches `INTERFACES.md` exactly.
 
 ---
