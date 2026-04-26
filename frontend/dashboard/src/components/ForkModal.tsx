@@ -26,12 +26,25 @@ export function ForkModal({ candidateName, checkpointId, onClose }: ForkModalPro
 
     let branchId = fallbackBranchId;
     if (mode === 'live') {
-      const result = await forkRun(params.run_id, {
-        parent_checkpoint_id: checkpointId,
-        mods: { proposer_prior: prior.trim() },
-        name: fallbackBranchId,
-      });
-      branchId = result.branch_id ?? fallbackBranchId;
+      try {
+        const result = await forkRun(params.run_id, {
+          parent_checkpoint_id: checkpointId,
+          mods: { proposer_prior: prior.trim() },
+          name: fallbackBranchId,
+        });
+        branchId = result.branch_id ?? fallbackBranchId;
+      } catch {
+        dispatch({
+          type: 'ADD_LOG_ENTRY',
+          payload: {
+            id: `fork-failed-${Date.now()}`,
+            timestamp,
+            tag: 'fork',
+            text: 'fork API unavailable; recording local fork intent',
+            candidateName,
+          },
+        });
+      }
     }
 
     dispatch({

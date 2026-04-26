@@ -2,7 +2,9 @@
 import { useDashboard } from '@/lib/state';
 
 export function StatusBar() {
-  const { sseConnected, run, mode } = useDashboard();
+  const { sseConnected, run, mode, latestCheckpointId, lastError } = useDashboard();
+  const ckpt = latestCheckpointId ?? run?.checkpointId;
+
   return (
     <div className="h-7 flex items-center gap-6 px-6 bg-header border-t border-border text-[10px] tracking-wide text-text-lo uppercase">
       <span className="flex items-center gap-1.5">

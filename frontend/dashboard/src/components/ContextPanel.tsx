@@ -10,7 +10,7 @@ export function ContextPanel() {
   const { contextTab, selectedNode, tree } = useDashboard();
   const dispatch = useDashboardDispatch();
 
-  const tabs = ['chart', 'diff', 'test', 'memory', 'graph'] as const;
+  const tabs = ['chart', 'diff', 'test', 'memory'] as const;
   const selected = selectedNode ?? tree.find(n => n.status === 'best')?.candidate ?? tree[0]?.candidate ?? null;
   const diff = getDiff();
   const testOut = getTestOutput();
@@ -42,8 +42,9 @@ export function ContextPanel() {
               <span className="text-green">+18</span>
               <span className="text-red">-3</span>
             </div>
-          );
-        })()}
+            <DiffViewer diff={diff} />
+          </div>
+        )}
         {contextTab === 'diff' && !diff && (
           <div className="text-text-mid text-xs">
             {selected ? `No diff available for ${selected}` : 'No candidate selected yet.'}

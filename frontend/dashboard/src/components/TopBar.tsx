@@ -1,8 +1,6 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useDashboard, useDashboardDispatch } from '@/lib/state';
-import { startMockSSE } from '@/lib/sse';
+import { useDashboard } from '@/lib/state';
 
 export function TopBar() {
   const { run, mode } = useDashboard();

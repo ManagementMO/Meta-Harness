@@ -66,11 +66,6 @@ export function ScoreChart() {
   const yTicks = Array.from({ length: 5 }, (_, i) => yDomain.min + ((yDomain.max - yDomain.min) * i) / 4);
   const xTicks = Array.from({ length: maxIteration + 1 }, (_, i) => i);
 
-  const yTicks: number[] = [];
-  for (let v = yMin; v <= yMax + 0.001; v += 0.05) {
-    yTicks.push(Math.round(v * 100) / 100);
-  }
-
   const toPath = (nodes: typeof mainNodes) =>
     nodes.map((n, i) => `${i === 0 ? 'M' : 'L'} ${x(n.iteration)} ${y(n.scores.accuracy)}`).join(' ');
 
@@ -278,20 +273,18 @@ export function ScoreChart() {
       <line x1={width - 55} x2={width - 40} y1={12} y2={12} stroke="#7ab8ad" strokeWidth={1.5} strokeDasharray="4 3" opacity={0.5} />
       <text x={width - 36} y={15} fill="#707084" fontSize={8} fontFamily="monospace">PARETO</text>
 
-      {tasks.length > 0 && (
-        <>
-          <text
-            x={pad.left}
-            y={barTop + 4}
-            fill="#707084"
-            fontSize={8}
-            fontFamily="monospace"
-            letterSpacing="0.06em"
-          >
-            PER-TASK PASS RATE — {focusNode?.candidate ?? ''}
-          </text>
+      <text
+        x={pad.left}
+        y={barTop + 4}
+        fill="#707084"
+        fontSize={8}
+        fontFamily="monospace"
+        letterSpacing="0.06em"
+      >
+        PER-TASK PASS RATE — {focusNode?.candidate ?? ''}
+      </text>
 
-      {taskBreakdown.length === 0 && (
+      {tasks.length === 0 && (
         <text
           x={pad.left}
           y={barTop + 26}
@@ -303,7 +296,7 @@ export function ScoreChart() {
         </text>
       )}
 
-      {taskBreakdown.map((task, i) => {
+      {tasks.map((task, i) => {
         const by = barTop + 18 + i * (barH + barGap);
         const bw = task.score * barMaxW;
         return (

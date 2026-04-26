@@ -236,9 +236,11 @@ function reducer(state: DashboardState, action: DashboardAction): DashboardState
           status:
             action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
               ? "best"
-              : action.payload.frontier.includes(node.candidate) && node.status !== "best"
+              : action.payload.frontier.includes(node.candidate)
                 ? "accepted"
-                : node.status,
+                : node.status === "best"
+                  ? "rejected"
+                  : node.status,
           delta:
             action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
               ? action.payload.delta
