@@ -10,6 +10,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@auth0/nextjs-auth0": "^4.19.0",
     "@monaco-editor/react": "^4.7.0",
     "@types/d3": "^7.4.3",
     "@xyflow/react": "^12.10.2",
