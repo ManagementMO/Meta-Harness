@@ -92,6 +92,12 @@ export function DecisionLog() {
                 </div>
                 <PhasePipeline phases={chapter.phases} />
                 <p className="text-text-mid text-[10px] italic mt-1 leading-relaxed">{chapter.hypothesis}</p>
+                {chapter.iteration >= 1 && (
+                  <span className="inline-flex items-center gap-1 mt-1 text-[8px] text-amber uppercase tracking-wide">
+                    <span className="w-1 h-1 rounded-full bg-amber" />
+                    memory injected: {Math.min(chapter.iteration + 2, 5)} patterns
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-col gap-[8px]">

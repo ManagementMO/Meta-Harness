@@ -15,7 +15,7 @@ export type LogTag =
   | "fork"
   | "memory";
 
-export type ContextTab = "chart" | "diff" | "test" | "memory" | "graph";
+export type ContextTab = "chart" | "diff" | "test" | "memory";
 
 export type LogFilter = "all" | "tools" | "verify" | "scores" | "forks";
 
@@ -103,6 +103,8 @@ export type DashboardState = {
   selectedNode: string | null;
   selectedLogLine: string | null;
   sseConnected: boolean;
+  latestCheckpointId: string | null;
+  lastError: string | null;
 };
 
 export type RunInfo = RunSummary;
@@ -122,6 +124,7 @@ export type DashboardAction =
   | { type: "SET_TREE"; payload: TreeNode[] }
   | { type: "ADD_TREE_NODE"; payload: TreeNode }
   | { type: "SET_ITERATIONS"; payload: IterationChapter[] }
+  | { type: "ADD_ITERATION"; payload: IterationChapter }
   | { type: "ADD_LOG_ENTRY"; payload: LogEntry }
   | { type: "SET_LOG_ENTRIES"; payload: LogEntry[] }
   | { type: "ADD_FORK_EVENT"; payload: ForkEvent }
@@ -129,4 +132,8 @@ export type DashboardAction =
   | { type: "SET_CONTEXT_TAB"; payload: ContextTab }
   | { type: "SELECT_NODE"; payload: string | null }
   | { type: "SELECT_LOG_LINE"; payload: string | null }
-  | { type: "SET_SSE_CONNECTED"; payload: boolean };
+  | { type: "SET_SSE_CONNECTED"; payload: boolean }
+  | { type: "SET_CHECKPOINT"; payload: string }
+  | { type: "SET_ERROR"; payload: string }
+  | { type: "CANCEL_BRANCH"; payload: string }
+  | { type: "RESET" };

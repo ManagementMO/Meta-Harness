@@ -120,19 +120,15 @@ export async function fetchMemory(namespace: string, limit = 50): Promise<unknow
   return res.json();
 }
 
-// Real candidate diff + test output flow from a future
-// ``GET /runs/{id}/candidates/{name}/diff`` endpoint (not yet built).
-// Until that lands, ``getDiff`` / ``getTestOutput`` return null so
-// ContextPanel renders its "No diff available" / "No test output
-// available" placeholder instead of a hardcoded fixture that would
-// display next to real candidate names from a live run.
+import { MOCK_DIFFS } from "./mock/diffs";
+import { MOCK_TEST_OUTPUT } from "./mock/test-output";
 
-export function getDiff(_candidateName: string): string | null {
-  return null;
+export function getDiff(candidateName: string): string | null {
+  return MOCK_DIFFS[candidateName] ?? null;
 }
 
-export function getTestOutput(_candidateName: string): string | null {
-  return null;
+export function getTestOutput(candidateName: string): string | null {
+  return MOCK_TEST_OUTPUT[candidateName] ?? null;
 }
 
 export const API_BASE_URL = BASE_URL;

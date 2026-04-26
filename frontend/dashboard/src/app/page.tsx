@@ -204,10 +204,20 @@ export default function Home() {
   const router = useRouter();
   const [phase, setPhase] = useState<'typing' | 'ready'>('typing');
   const [entering, setEntering] = useState(false);
+  const [latestRunId, setLatestRunId] = useState<string | null>(null);
+
+  useEffect(() => {
+    isBackendAvailable().then(ok => {
+      if (ok) listRuns().then(runs => {
+        if (runs.length > 0) setLatestRunId(runs[0].run_id);
+      }).catch(() => {});
+    });
+  }, []);
 
   const handleEnter = () => {
     setEntering(true);
-    setTimeout(() => router.push('/runs/demo-2026-04-25'), 600);
+    const target = latestRunId ? `/runs/${latestRunId}` : '/runs/demo-2026-04-25';
+    setTimeout(() => router.push(target), 600);
   };
 
   return (

@@ -19,9 +19,12 @@ export function DiffViewer({ diff }: { diff: string }) {
     }
   }
 
+  const lineCount = Math.max(original.length, modified.length, 8);
+  const height = Math.min(Math.max(lineCount * 20 + 20, 200), 600);
+
   return (
     <DiffEditor
-      height="100%"
+      height={`${height}px`}
       language="python"
       original={original.join('\n')}
       modified={modified.join('\n')}

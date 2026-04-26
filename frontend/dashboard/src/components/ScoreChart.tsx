@@ -2,14 +2,6 @@
 import { useState } from 'react';
 import { useDashboard } from '@/lib/state';
 
-const TASK_BREAKDOWN = [
-  { key: 'task_median_basic', label: 'median_basic', score: 1.0 },
-  { key: 'task_median_even', label: 'median_even', score: 0.8 },
-  { key: 'task_median_single', label: 'median_single', score: 1.0 },
-  { key: 'task_median_negative', label: 'median_negative', score: 0.6 },
-  { key: 'task_median_empty', label: 'median_empty', score: 0.8 },
-];
-
 function barColor(score: number) {
   if (score >= 0.8) return '#6a9e78';
   if (score >= 0.6) return '#b09868';
@@ -17,7 +9,7 @@ function barColor(score: number) {
 }
 
 export function ScoreChart() {
-  const { tree } = useDashboard();
+  const { tree, selectedNode } = useDashboard();
   const [hovered, setHovered] = useState<string | null>(null);
 
   const mainNodes = tree.filter(n => !n.isForkBranch).sort((a, b) => a.iteration - b.iteration);
@@ -25,29 +17,49 @@ export function ScoreChart() {
   const rejectedNodes = tree.filter(n => n.status === 'rejected');
   const bestNode = tree.find(n => n.status === 'best');
 
+  const focusNode = (selectedNode ? tree.find(n => n.candidate === selectedNode) : null) ?? bestNode;
+  const tasks = focusNode?.scores.per_task
+    ? Object.entries(focusNode.scores.per_task)
+        .map(([key, val]) => ({ key, label: key, score: val.pass_rate, trials: val.trials }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+    : [];
+
   const width = 500;
   const chartHeight = 300;
-  const barSectionHeight = 130;
+  const barSectionHeight = tasks.length > 0 ? 20 + tasks.length * 26 : 0;
   const totalHeight = chartHeight + barSectionHeight;
   const pad = { top: 20, right: 20, bottom: 40, left: 55 };
   const w = width - pad.left - pad.right;
   const h = chartHeight - pad.top - pad.bottom;
 
-  const xMin = 0, xMax = 4;
-  const yMin = 0.58, yMax = 0.90;
+  const allNodes = [...mainNodes, ...forkNodes];
+  const allScores = allNodes.map(n => n.scores.accuracy);
+  const scoreMin = allScores.length > 0 ? Math.min(...allScores) : 0.5;
+  const scoreMax = allScores.length > 0 ? Math.max(...allScores) : 1.0;
+  const yPad = Math.max((scoreMax - scoreMin) * 0.25, 0.05);
+  const yMin = Math.floor((scoreMin - yPad) * 20) / 20;
+  const yMax = Math.ceil((scoreMax + yPad) * 20) / 20;
+
+  const maxIter = allNodes.length > 0 ? Math.max(...allNodes.map(n => n.iteration)) : 4;
+  const xMin = 0;
+  const xMax = Math.max(maxIter, 1);
+
   const x = (v: number) => pad.left + ((v - xMin) / (xMax - xMin)) * w;
   const y = (v: number) => pad.top + h - ((v - yMin) / (yMax - yMin)) * h;
+
+  const yTicks: number[] = [];
+  for (let v = yMin; v <= yMax + 0.001; v += 0.05) {
+    yTicks.push(Math.round(v * 100) / 100);
+  }
 
   const toPath = (nodes: typeof mainNodes) =>
     nodes.map((n, i) => `${i === 0 ? 'M' : 'L'} ${x(n.iteration)} ${y(n.scores.accuracy)}`).join(' ');
 
-  // Fork line starts from the parent node on the main branch
   const forkParent = mainNodes.find(n => n.candidate === forkNodes[0]?.parent_candidate_name);
   const forkPath = forkParent
     ? `M ${x(forkParent.iteration)} ${y(forkParent.scores.accuracy)} ` + forkNodes.map(n => `L ${x(n.iteration)} ${y(n.scores.accuracy)}`).join(' ')
     : '';
 
-  // Pareto frontier: stepped line connecting accepted/best nodes in iteration order
   const paretoEligible = tree
     .filter(n => n.status === 'accepted' || n.status === 'best')
     .sort((a, b) => a.iteration - b.iteration);
@@ -65,27 +77,30 @@ export function ScoreChart() {
     if (frontier.length > 0) {
       const segments: string[] = [`M ${x(frontier[0].iteration)} ${y(frontier[0].accuracy)}`];
       for (let i = 1; i < frontier.length; i++) {
-        // Stepped: horizontal then vertical
         segments.push(`L ${x(frontier[i].iteration)} ${y(frontier[i - 1].accuracy)}`);
         segments.push(`L ${x(frontier[i].iteration)} ${y(frontier[i].accuracy)}`);
       }
-      // Extend to right edge
       segments.push(`L ${x(xMax)} ${y(frontier[frontier.length - 1].accuracy)}`);
       paretoPath = segments.join(' ');
     }
   }
 
-  // All nodes for hover
-  const allNodes = [...mainNodes, ...forkNodes];
   const hoveredNode = hovered ? allNodes.find(n => n.candidate === hovered) : null;
 
-  // Bar chart layout
   const barTop = chartHeight + 10;
   const barLeft = pad.left + 80;
   const barRight = width - pad.right;
   const barMaxW = barRight - barLeft;
   const barH = 14;
   const barGap = 6;
+
+  if (tree.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-text-ghost text-[10px] uppercase tracking-wide">
+        Awaiting data
+      </div>
+    );
+  }
 
   return (
     <svg
@@ -94,27 +109,22 @@ export function ScoreChart() {
       preserveAspectRatio="xMidYMin meet"
       style={{ maxHeight: '100%' }}
     >
-      {/* ── Main Chart ── */}
-
-      {/* Grid */}
-      {[0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90].map(v => (
+      {yTicks.map(v => (
         <line key={v} x1={pad.left} x2={width - pad.right} y1={y(v)} y2={y(v)} stroke="#1c1c26" strokeWidth={1} />
       ))}
 
-      {/* Baseline */}
-      <line x1={pad.left} x2={width - pad.right} y1={y(0.62)} y2={y(0.62)} stroke="#303040" strokeWidth={1} strokeDasharray="4 4" />
+      {mainNodes.length > 0 && (
+        <line x1={pad.left} x2={width - pad.right} y1={y(mainNodes[0].scores.accuracy)} y2={y(mainNodes[0].scores.accuracy)} stroke="#303040" strokeWidth={1} strokeDasharray="4 4" />
+      )}
 
-      {/* Pareto frontier */}
       {paretoPath && (
         <path d={paretoPath} fill="none" stroke="#7ab8ad" strokeWidth={1.5} strokeDasharray="6 4" opacity={0.3} />
       )}
 
-      {/* Y axis labels */}
-      {[0.60, 0.70, 0.80, 0.90].map(v => (
+      {yTicks.filter((_, i) => i % 2 === 0).map(v => (
         <text key={v} x={pad.left - 8} y={y(v) + 3} textAnchor="end" fill="#4e4e5c" fontSize={9} fontFamily="monospace">{v.toFixed(2)}</text>
       ))}
 
-      {/* Y axis title */}
       <text
         x={12}
         y={pad.top + h / 2}
@@ -128,12 +138,10 @@ export function ScoreChart() {
         ACCURACY
       </text>
 
-      {/* X axis labels */}
-      {[0, 1, 2, 3, 4].map(v => (
+      {Array.from({ length: xMax + 1 }, (_, i) => i).map(v => (
         <text key={v} x={x(v)} y={chartHeight - 18} textAnchor="middle" fill="#4e4e5c" fontSize={9} fontFamily="monospace">{v}</text>
       ))}
 
-      {/* X axis title */}
       <text
         x={pad.left + w / 2}
         y={chartHeight - 2}
@@ -146,7 +154,6 @@ export function ScoreChart() {
         ITERATION
       </text>
 
-      {/* Main line */}
       {mainNodes.length > 1 && <path d={toPath(mainNodes)} fill="none" stroke="#6a9e78" strokeWidth={1.5} />}
       {mainNodes.map(n => (
         <circle
@@ -161,7 +168,6 @@ export function ScoreChart() {
         />
       ))}
 
-      {/* Fork line */}
       {forkPath && <path d={forkPath} fill="none" stroke="#8878a8" strokeWidth={1.5} />}
       {forkNodes.map(n => (
         <circle
@@ -176,7 +182,6 @@ export function ScoreChart() {
         />
       ))}
 
-      {/* Rejected dots */}
       {rejectedNodes.map(n => (
         <circle
           key={n.candidate}
@@ -190,7 +195,6 @@ export function ScoreChart() {
         />
       ))}
 
-      {/* Best dot with glow */}
       {bestNode && (
         <>
           <circle cx={x(bestNode.iteration)} cy={y(bestNode.scores.accuracy)} r={8} fill="#7ab8ad" opacity={0.1} />
@@ -206,7 +210,6 @@ export function ScoreChart() {
         </>
       )}
 
-      {/* Hover tooltip */}
       {hoveredNode && (() => {
         const tx = x(hoveredNode.iteration);
         const ty = y(hoveredNode.scores.accuracy);
@@ -243,7 +246,6 @@ export function ScoreChart() {
         );
       })()}
 
-      {/* Legend */}
       <circle cx={width - 130} cy={12} r={3} fill="#6a9e78" />
       <text x={width - 123} y={15} fill="#707084" fontSize={8} fontFamily="monospace">MAIN</text>
       <circle cx={width - 88} cy={12} r={3} fill="#8878a8" />
@@ -251,53 +253,54 @@ export function ScoreChart() {
       <line x1={width - 55} x2={width - 40} y1={12} y2={12} stroke="#7ab8ad" strokeWidth={1.5} strokeDasharray="4 3" opacity={0.5} />
       <text x={width - 36} y={15} fill="#707084" fontSize={8} fontFamily="monospace">PARETO</text>
 
-      {/* ── Per-Task Breakdown Bar Chart ── */}
+      {tasks.length > 0 && (
+        <>
+          <text
+            x={pad.left}
+            y={barTop + 4}
+            fill="#707084"
+            fontSize={8}
+            fontFamily="monospace"
+            letterSpacing="0.06em"
+          >
+            PER-TASK PASS RATE — {focusNode?.candidate ?? ''}
+          </text>
 
-      {/* Section title */}
-      <text
-        x={pad.left}
-        y={barTop + 4}
-        fill="#707084"
-        fontSize={8}
-        fontFamily="monospace"
-        letterSpacing="0.06em"
-      >
-        TASK BREAKDOWN{bestNode ? ` — ${bestNode.candidate}` : ''}
-      </text>
-
-      {TASK_BREAKDOWN.map((task, i) => {
-        const by = barTop + 18 + i * (barH + barGap);
-        const bw = task.score * barMaxW;
-        return (
-          <g key={task.key}>
-            {/* Label */}
-            <text
-              x={barLeft - 6}
-              y={by + barH / 2 + 3}
-              textAnchor="end"
-              fill="#707084"
-              fontSize={8}
-              fontFamily="monospace"
-            >
-              {task.label}
-            </text>
-            {/* Background bar */}
-            <rect x={barLeft} y={by} width={barMaxW} height={barH} rx={2} fill="#1c1c26" />
-            {/* Value bar */}
-            <rect x={barLeft} y={by} width={bw} height={barH} rx={2} fill={barColor(task.score)} />
-            {/* Score label */}
-            <text
-              x={barLeft + bw + 6}
-              y={by + barH / 2 + 3}
-              fill="#4e4e5c"
-              fontSize={8}
-              fontFamily="monospace"
-            >
-              {task.score.toFixed(1)}
-            </text>
-          </g>
-        );
-      })}
+          {tasks.map((task, i) => {
+            const by = barTop + 18 + i * (barH + barGap);
+            const bw = task.score * barMaxW;
+            return (
+              <g key={task.key}>
+                <text
+                  x={barLeft - 6}
+                  y={by + barH / 2 + 3}
+                  textAnchor="end"
+                  fill="#707084"
+                  fontSize={8}
+                  fontFamily="monospace"
+                >
+                  {task.label}
+                </text>
+                <rect x={barLeft} y={by} width={barMaxW} height={barH} rx={2} fill="#1c1c26" />
+                <rect x={barLeft} y={by} width={bw} height={barH} rx={2} fill={barColor(task.score)} />
+                {task.trials && task.trials.map((pass, ti) => {
+                  const dotX = barLeft + barMaxW + 8 + ti * 10;
+                  return (
+                    <circle
+                      key={ti}
+                      cx={dotX}
+                      cy={by + barH / 2}
+                      r={2.5}
+                      fill={pass ? '#6a9e78' : '#b06068'}
+                      opacity={0.7}
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
+        </>
+      )}
     </svg>
   );
 }
