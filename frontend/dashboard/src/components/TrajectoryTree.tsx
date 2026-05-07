@@ -64,7 +64,7 @@ function layoutTree(nodes: TreeNode[]): LayoutNode[] {
 export function TrajectoryTree() {
   const params = useParams<{ run_id: string }>();
   const svgRef = useRef<SVGSVGElement>(null);
-  const { tree, selectedNode, forkEvents } = useDashboard();
+  const { tree, selectedNode, forkEvents, mode, run } = useDashboard();
   const dispatch = useDashboardDispatch();
   const [forkTarget, setForkTarget] = useState<{ candidate: string; checkpointId: string; parentThreadId?: string } | null>(null);
 
@@ -183,13 +183,16 @@ export function TrajectoryTree() {
         .on('click', () => dispatch({ type: 'SELECT_NODE', payload: node.candidate }))
         .on('contextmenu', async (event: MouseEvent) => {
           event.preventDefault();
-          let checkpointId = node.checkpointId;
-          if (!checkpointId) {
+          let checkpointId = node.checkpointId ?? undefined;
+          if (!checkpointId && mode === 'mock') {
+            checkpointId = run?.checkpointId ?? undefined;
+          }
+          if (!checkpointId && mode === 'live') {
             const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
               candidate: node.candidate,
               iteration: node.iteration,
               threadId: node.threadId,
-            });
+            }).catch(() => null);
             checkpointId = resolvedCheckpointId ?? undefined;
             if (checkpointId) {
               dispatch({
@@ -301,13 +304,16 @@ export function TrajectoryTree() {
         .attr('cursor', 'pointer')
         .on('click', async (event: MouseEvent) => {
           event.stopPropagation();
-          let checkpointId = node.checkpointId;
-          if (!checkpointId) {
+          let checkpointId = node.checkpointId ?? undefined;
+          if (!checkpointId && mode === 'mock') {
+            checkpointId = run?.checkpointId ?? undefined;
+          }
+          if (!checkpointId && mode === 'live') {
             const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
               candidate: node.candidate,
               iteration: node.iteration,
               threadId: node.threadId,
-            });
+            }).catch(() => null);
             checkpointId = resolvedCheckpointId ?? undefined;
             if (checkpointId) {
               dispatch({
@@ -357,7 +363,7 @@ export function TrajectoryTree() {
           forkBtn.transition().duration(150).attr('opacity', 0);
         });
     }
-  }, [tree, selectedNode, forkEvents, dispatch, params.run_id]);
+  }, [tree, selectedNode, forkEvents, mode, run?.checkpointId, dispatch, params.run_id]);
 
   return (
     <>

@@ -384,11 +384,14 @@ Returns: line-numbered content. Files >2000 lines must specify a range or get an
 }
 ```
 
-`error_type` ∈ {`context_mismatch`, `file_not_found`, `invalid_patch`}.
-On `context_mismatch`, `context_echo` is populated with the current file
-content at the failed range so the model can fix the patch without
-re-reading the file (per Appendix C §C.6.2's "this tells the model
-exactly what to fix" rule). On `file_not_found` or `invalid_patch`,
+`error_type` ∈ {`context_mismatch`, `file_not_found`, `invalid_patch`,
+`invalid_patch_path`, `path_mismatch`}. The patch must be a single-file
+diff whose `---` / `+++` headers target the same workspace-relative file
+as the `path` argument; otherwise the tool returns `path_mismatch` and
+does not invoke `git apply`. On `context_mismatch`, `context_echo` is
+populated with the current file content at the failed range so the model
+can fix the patch without re-reading the file (per Appendix C §C.6.2's
+"this tells the model exactly what to fix" rule). On other failures,
 `context_echo` is `null`.
 
 ### 3.3 `run_bash`
@@ -503,7 +506,7 @@ class CodingAgentHarness:
     def _build_initial_context(self, orient_summary: dict) -> dict: ...   # 5
     def _format_tool_result(self, name: str, result: ToolResult) -> str: ... # 6
     def _compose_act_prompt(self, plan: dict) -> str: ...                 # 7
-    async def _call_llm(self, messages: list, tools: list) -> Response: ...  # 8
+    async def _call_llm(self, messages: list, tools: list, *, tool_choice: dict | None = None) -> Response: ...  # 8
     def should_loop_back_to_act(self, verify_result: dict) -> bool: ...   # 9
     def _summarize_for_overflow(self, messages: list) -> list: ...        # 10
     # 11. (Structural) Reordering phases: skip plan for simple tasks, add
@@ -594,6 +597,8 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 | `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25", "proposer": "claude", "mock_bench": false, "trials": 5, "workers": 3}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "current_iteration": 0}` | **201** |
 | `GET`  | `/runs` | — | `{"runs": [{"run_id", "thread_id", "status", "started_at", "current_iteration", "best_score"}]}` | 200 |
 | `GET`  | `/runs/{run_id}` | — | full `RunInfo` (run dir manifest + frontier_val + last few summary rows) | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_name}/diff` | — | `{"candidate", "parent", "from_path", "to_path", "diff"}` where `diff` is unified diff text between parent and candidate source | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_name}/test-output` | — | `{"candidate", "output"}` summarizing eval-result and available verify trace output | 200 |
 | `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to all branches via `branch_registry`) | 200 |
 
 `proposer`, `mock_bench`, `trials`, and `workers` are backend run-control
@@ -634,11 +639,9 @@ from an existing branch thread without changing the route shape.
 | `POST` | `/memory/{namespace}/search` | `{"query": "schema drift retry", "limit": 5}` | `{"results": [...], "implemented": false}` | 200 |
 
 `namespace` is URL-encoded; the conventional shape is
-`("learned_patterns", "<domain>")`.
-
-Until Step 8 lands, the backend returns empty memory result sets with
-`implemented=false`; callers must treat that as a valid placeholder, not
-an error.
+`("learned_patterns", "<domain>")`. When the Postgres store is unavailable,
+the backend returns empty result sets with `implemented=false`; callers
+must treat that as a valid degraded mode, not an error.
 
 ### 6.6 Events / SSE (`api/events.py`)
 
@@ -681,10 +684,10 @@ Blank line terminates each event. Reconnect via `Last-Event-ID` header
 |---|---|---|
 | `state-update` | every LangGraph node transition | `{thread_id, node, iteration, ts, summary}` |
 | `checkpoint-written` | AsyncPostgresSaver post-write | `{thread_id, checkpoint_id, parent_checkpoint_id, ts, node}` |
-| `candidate-created` | `propose` node after parsing pending_eval.json | `{thread_id, candidate, import_path, parent}` |
+| `candidate-created` | `propose` node after parsing pending_eval.json | `{thread_id, candidate, parent_candidate_name, import_path, parent, iteration, status, scores, delta, hypothesis, axis}` |
 | `validate-result` | `validate` node | `{thread_id, candidate, valid, error?}` |
-| `eval-result` | `benchmark` node | `{thread_id, candidate, accuracy, per_task, tokens, cost_usd}` |
-| `frontier-updated` | `update_frontier` node | `{thread_id, iteration, frontier, best_candidate, delta}` |
+| `eval-result` | `benchmark` node | `{thread_id, candidate, parent_candidate_name, iteration, status, accuracy, scores, per_task, tokens, cost_usd, hypothesis, axis}` |
+| `frontier-updated` | `update_frontier` node | `{thread_id, candidate, parent_candidate_name, iteration, frontier, best_candidate, best_score, status, accepted, delta, scores, hypothesis, axis}` |
 | `iteration-complete` | end of `update_frontier` | `{thread_id, iteration, status: "improved"\|"no_improvement"}` |
 | `fork-created` | `worktree_add` | `{thread_id, parent_thread_id, parent_checkpoint_id, mods_summary}` |
 | `branch-cancelled` | cancel endpoint | `{thread_id, reason}` |

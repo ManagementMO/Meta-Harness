@@ -178,6 +178,16 @@ def test_run_checkpoint_fork_branch_memory_api_flow():
             assert info["current_iteration"] == 1
             assert info["frontier_val"]["iteration"] == 1
 
+            diff = client.get(f"/runs/{run_name}/candidates/_mock_iter_1/diff")
+            assert diff.status_code == 200
+            assert "agents/_mock_iter_1.py" in diff.json()["diff"]
+
+            test_output = client.get(
+                f"/runs/{run_name}/candidates/_mock_iter_1/test-output"
+            )
+            assert test_output.status_code == 200
+            assert "accuracy:" in test_output.json()["output"]
+
             listed = client.get("/runs")
             assert listed.status_code == 200
             assert any(item["run_id"] == run_name for item in listed.json()["runs"])

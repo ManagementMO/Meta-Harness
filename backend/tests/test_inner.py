@@ -50,55 +50,50 @@ def test_route_after_verify_delegates_harness_policy():
     assert _route_after_verify_for_harness(state, NoRetryHarness()) == "submit"
 
 
-async def test_plan_uses_harness_initial_context_override():
-    from app.meta_harness.harness import CodingAgentHarness  # noqa: PLC0415
+async def test_plan_uses_initial_context_and_harness_llm_call():
     from app.meta_harness.inner import plan  # noqa: PLC0415
 
-    class FakeClient:
-        seen_prompt = ""
+    class _Block:
+        type = "tool_use"
+        name = "submit_plan"
+        input = {"summary": "use custom context", "steps": []}
 
-        class Messages:
-            async def create(self, **kwargs):
-                FakeClient.seen_prompt = kwargs["messages"][0]["content"]
+    class _Response:
+        content = [_Block()]
 
-                class Block:
-                    type = "tool_use"
-                    name = "submit_plan"
-                    input = {"steps": ["ok"]}
-
-                class Response:
-                    content = [Block()]
-
-                return Response()
-
-        messages = Messages()
-
-    class ContextHarness(CodingAgentHarness):
-        _client = FakeClient()
-
-        def __init__(self) -> None:
-            pass
+    class _Harness:
+        PLAN_PROMPT_TEMPLATE = "{instruction}|{tree}|{lang}|{test_runner}|{tests}"
+        seen_messages = None
+        seen_tools = None
+        seen_tool_choice = None
 
         def _build_initial_context(self, orient_summary: dict) -> dict:
             return {
-                "tree": "OVERRIDDEN_TREE",
-                "project": {"lang": "python", "test_runner": "pytest"},
-                "tests": {"test_custom.py": "def test_custom(): pass"},
+                "tree": "custom-tree",
+                "project": {"lang": "custom-lang", "test_runner": "custom-test"},
+                "tests": {"tests/test_contract.py": "assert True"},
             }
 
-    state = {
-        "task": {"instruction": "do it"},
-        "orient_summary": {
-            "tree": "ORIGINAL_TREE",
-            "project": {"lang": "unknown", "test_runner": "unknown"},
-            "tests": {},
+        async def _call_llm(self, messages, tools, *, tool_choice=None):
+            self.seen_messages = messages
+            self.seen_tools = tools
+            self.seen_tool_choice = tool_choice
+            return _Response()
+
+    harness = _Harness()
+    result = await plan(
+        {
+            "task": {"instruction": "solve it"},
+            "orient_summary": {"tree": "raw-tree"},
         },
-    }
+        harness,  # type: ignore[arg-type]
+    )
 
-    await plan(state, ContextHarness())
-
-    assert "OVERRIDDEN_TREE" in FakeClient.seen_prompt
-    assert "ORIGINAL_TREE" not in FakeClient.seen_prompt
+    assert result["plan"]["summary"] == "use custom context"
+    assert "custom-tree" in harness.seen_messages[0]["content"]
+    assert "raw-tree" not in harness.seen_messages[0]["content"]
+    assert harness.seen_tools[0]["name"] == "submit_plan"
+    assert harness.seen_tool_choice == {"type": "tool", "name": "submit_plan"}
 
 
 @requires_anthropic

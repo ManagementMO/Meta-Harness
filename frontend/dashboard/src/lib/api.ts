@@ -289,12 +289,22 @@ export async function listMemory(namespace: string, limit = 50): Promise<MemoryE
   });
 }
 
-export function getDiff(): string | null {
-  return null;
+export async function getDiff(runId: string, candidate: string): Promise<string | null> {
+  const res = await fetch(
+    `${BASE_URL}/runs/${encodeURIComponent(runId)}/candidates/${encodeURIComponent(candidate)}/diff`,
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  return typeof data.diff === "string" && data.diff.length > 0 ? data.diff : null;
 }
 
-export function getTestOutput(): string | null {
-  return null;
+export async function getTestOutput(runId: string, candidate: string): Promise<string | null> {
+  const res = await fetch(
+    `${BASE_URL}/runs/${encodeURIComponent(runId)}/candidates/${encodeURIComponent(candidate)}/test-output`,
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  return typeof data.output === "string" && data.output.length > 0 ? data.output : null;
 }
 
 export const API_BASE_URL = BASE_URL;

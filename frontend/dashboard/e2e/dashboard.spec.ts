@@ -10,7 +10,7 @@ test.describe('Dashboard (mock mode, no backend)', () => {
   test('trajectory tree renders nodes', async ({ page }) => {
     const nodes = page.getByTestId('trajectory-node');
     await expect(nodes.first()).toBeVisible({ timeout: 8_000 });
-    await expect(nodes).toHaveCount(7);
+    await expect(nodes).toHaveCount(7, { timeout: 15_000 });
   });
 
   test('decision log shows iteration chapters', async ({ page }) => {
@@ -39,8 +39,9 @@ test.describe('Dashboard (mock mode, no backend)', () => {
     const diffTab = page.getByRole('button', { name: /diff/i });
     await diffTab.click();
 
-    const diffPlaceholder = page.getByText(/No diff available for/);
-    await expect(diffPlaceholder).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByText(/Mock task patch preview|No diff available for/),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test('right-click tree node opens fork modal', async ({ page }) => {

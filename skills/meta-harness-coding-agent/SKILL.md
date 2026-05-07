@@ -23,7 +23,7 @@ any of the **11 search-space methods** (Appendix C §C.9):
 - `_build_initial_context(orient_summary)` — what the planner sees.
 - `_format_tool_result(name, result)` — how tool outputs render.
 - `_compose_act_prompt(plan)` — plan injection into act phase.
-- `_call_llm(messages, tools)` — Anthropic API call mechanics.
+- `_call_llm(messages, tools, *, tool_choice=None)` — Anthropic API call mechanics.
 - `should_loop_back_to_act(verify_result)` — retry decision logic.
 - `_summarize_for_overflow(messages)` — context overflow strategy.
 - (Structural) Override `build_inner_graph()` to reorder phases.

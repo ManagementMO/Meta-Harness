@@ -1,8 +1,10 @@
 # TEAM_HANDOFF.md — 4-Person Hackathon Coordination Plan
 
-*Where we are, what's built, what remains, and exactly who builds what
-over the next several hours. Read this end-to-end before touching any
-code; it's the source of truth for the hand-off.*
+*Historical 4-person hackathon coordination plan. This file is useful for
+understanding how work was split during the build, but it is no longer the
+source of truth for current repository status. Use `README.md`,
+`docs/PROJECT_STATUS.md`, `docs/PROJECT_LAYOUT.md`, and
+`docs/INTERFACES.md` for the live contract.*
 
 ---
 

@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth0 } from "./lib/auth0";
+
+function hasAuth0Config(): boolean {
+  return Boolean(
+    process.env.AUTH0_DOMAIN &&
+      process.env.AUTH0_CLIENT_ID &&
+      process.env.AUTH0_SECRET &&
+      (process.env.AUTH0_CLIENT_SECRET ||
+        process.env.AUTH0_CLIENT_ASSERTION_SIGNING_KEY),
+  );
+}
 
 export async function middleware(request: NextRequest) {
+  if (!hasAuth0Config()) {
+    return NextResponse.next();
+  }
+
+  const { auth0 } = await import("./lib/auth0");
   const authRes = await auth0.middleware(request);
 
   // Auth routes — let Auth0 middleware handle them fully (login, callback, logout)

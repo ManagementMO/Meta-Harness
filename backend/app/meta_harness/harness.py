@@ -169,14 +169,20 @@ class CodingAgentHarness:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
+        *,
+        tool_choice: dict[str, Any] | None = None,
     ) -> Any:
         """The Anthropic API call. Override for caching, ordering, etc."""
+        kwargs: dict[str, Any] = {}
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
         return await self._client.messages.create(
             model=self.MODEL,
             max_tokens=self.MAX_TOKENS,
             messages=messages,
             tools=tools,
             system=self.SYSTEM_PROMPT,
+            **kwargs,
         )
 
     # Override 9 — control whether to retry act after verify failure

@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from app.meta_harness.sandbox import run_in_sandbox
@@ -260,6 +260,73 @@ def write_file(workspace: Path, path: str, content: str) -> dict[str, Any]:
 _HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@", re.MULTILINE)
 
 
+def _workspace_relative_path(workspace: Path, target: Path) -> str:
+    """Return a normalized POSIX path for ``target`` relative to workspace."""
+    return target.resolve().relative_to(workspace.resolve()).as_posix()
+
+
+def _normalize_patch_header_path(raw: str) -> str | None:
+    """Normalize a path from a unified-diff file header.
+
+    Returns ``None`` for ``/dev/null``. Rejects absolute paths and path
+    traversal; the caller compares the result against the tool's declared
+    ``path`` argument before invoking ``git apply``.
+    """
+    path = raw.strip()
+    if "\t" in path:
+        path = path.split("\t", 1)[0]
+    if path == "/dev/null":
+        return None
+    if path.startswith(("a/", "b/")):
+        path = path[2:]
+    posix = PurePosixPath(path)
+    if posix.is_absolute() or ".." in posix.parts:
+        raise ValueError(f"patch header path escapes workspace: {raw!r}")
+    return posix.as_posix()
+
+
+def _patch_header_paths(patch_text: str) -> set[str]:
+    """Return file paths mentioned by ``---`` / ``+++`` patch headers."""
+    paths: set[str] = set()
+    for line in patch_text.splitlines():
+        if not (line.startswith("--- ") or line.startswith("+++ ")):
+            continue
+        normalized = _normalize_patch_header_path(line[4:])
+        if normalized is not None:
+            paths.add(normalized)
+    return paths
+
+
+def _validate_single_file_patch(
+    workspace: Path,
+    target: Path,
+    patch_text: str,
+) -> dict[str, Any] | None:
+    """Return an error dict if ``patch_text`` edits anything but target."""
+    try:
+        patch_paths = _patch_header_paths(patch_text)
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "error_type": "invalid_patch_path",
+            "error_message": str(exc),
+            "context_echo": None,
+        }
+    expected = _workspace_relative_path(workspace, target)
+    if patch_paths and patch_paths != {expected}:
+        return {
+            "status": "error",
+            "error_type": "path_mismatch",
+            "error_message": (
+                f"patch headers target {sorted(patch_paths)!r}, but tool path is "
+                f"{expected!r}. apply_patch only accepts single-file patches "
+                "for the declared path."
+            ),
+            "context_echo": None,
+        }
+    return None
+
+
 def _extract_context_echo(
     workspace: Path, path: str, patch_text: str
 ) -> dict[str, Any] | None:
@@ -312,6 +379,9 @@ def apply_patch(workspace: Path, path: str, patch: str) -> dict[str, Any]:
             ),
             "context_echo": None,
         }
+    patch_error = _validate_single_file_patch(workspace, target, patch)
+    if patch_error is not None:
+        return patch_error
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".patch", delete=False

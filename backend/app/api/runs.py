@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import traceback
 from dataclasses import dataclass
@@ -164,6 +165,127 @@ def _read_summary_rows(run_dir: Path, *, limit: int = 5) -> list[dict[str, Any]]
         if line.strip()
     ]
     return rows[-limit:]
+
+
+def _read_all_summary_rows(run_dir: Path) -> list[dict[str, Any]]:
+    path = run_dir / "evolution_summary.jsonl"
+    if not path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+
+
+def _candidate_artifact_dir(run_dir: Path, candidate_name: str) -> Path:
+    try:
+        safe_name = runs_mod.validate_artifact_name(candidate_name, kind="candidate")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="candidate not found",
+        ) from exc
+    candidate_dir = (run_dir / "candidates" / safe_name).resolve()
+    try:
+        candidate_dir.relative_to((run_dir / "candidates").resolve())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="candidate not found",
+        ) from exc
+    if not candidate_dir.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="candidate not found",
+        )
+    return candidate_dir
+
+
+def _candidate_row(run_dir: Path, candidate_name: str) -> dict[str, Any] | None:
+    return next(
+        (
+            row
+            for row in _read_all_summary_rows(run_dir)
+            if row.get("candidate") == candidate_name
+        ),
+        None,
+    )
+
+
+def _agent_source_path(repo_root: Path, candidate_name: str) -> Path:
+    safe_name = runs_mod.validate_artifact_name(candidate_name, kind="candidate")
+    return repo_root / "agents" / f"{safe_name}.py"
+
+
+def _unified_candidate_diff(
+    *,
+    repo_root: Path,
+    run_dir: Path,
+    candidate_name: str,
+) -> dict[str, str]:
+    row = _candidate_row(run_dir, candidate_name) or {}
+    parent = row.get("parent_candidate_name") or "baseline"
+    parent_path = _agent_source_path(repo_root, parent)
+    candidate_path = _agent_source_path(repo_root, candidate_name)
+    if not candidate_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="candidate source not found",
+        )
+    parent_text = parent_path.read_text().splitlines(keepends=True) if parent_path.exists() else []
+    candidate_text = candidate_path.read_text().splitlines(keepends=True)
+    diff = "".join(
+        difflib.unified_diff(
+            parent_text,
+            candidate_text,
+            fromfile=f"agents/{parent}.py",
+            tofile=f"agents/{candidate_name}.py",
+        )
+    )
+    return {
+        "candidate": candidate_name,
+        "parent": str(parent),
+        "from_path": f"agents/{parent}.py",
+        "to_path": f"agents/{candidate_name}.py",
+        "diff": diff,
+    }
+
+
+def _format_accuracy(value: Any) -> str:
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return "0.0000"
+
+
+def _candidate_test_output(candidate_dir: Path) -> str:
+    chunks: list[str] = []
+    eval_path = candidate_dir / "eval-result.json"
+    if eval_path.exists():
+        eval_result = json.loads(eval_path.read_text())
+        chunks.append(
+            "\n".join(
+                [
+                    f"candidate: {eval_result.get('candidate', candidate_dir.name)}",
+                    f"accuracy: {_format_accuracy(eval_result.get('accuracy'))}",
+                    f"tasks: {eval_result.get('n_tasks', 0)}",
+                    f"trials_per_task: {eval_result.get('n_trials_per_task', 0)}",
+                ]
+            )
+        )
+    for verify_path in sorted((candidate_dir / "traces").glob("*/*verify.json"))[:10]:
+        verify = json.loads(verify_path.read_text())
+        chunks.append(
+            "\n".join(
+                [
+                    f"== {verify_path.parent.name} ==",
+                    f"tests_pass: {verify.get('tests_pass', False)}",
+                    str(verify.get("test_output", "")).strip(),
+                ]
+            )
+        )
+    return "\n\n".join(chunk for chunk in chunks if chunk.strip())
 
 
 def _best_score(frontier: dict[str, Any] | None) -> float | None:
@@ -486,6 +608,35 @@ async def list_runs(request: Request) -> dict[str, Any]:
 async def get_run(run_id: str, request: Request) -> dict[str, Any]:
     run_dir = get_run_dir(request, run_id)
     return _full_run_info(run_dir, run_registry.get(run_id))
+
+
+@router.get("/runs/{run_id}/candidates/{candidate_name}/diff")
+async def get_candidate_diff(
+    run_id: str,
+    candidate_name: str,
+    request: Request,
+) -> dict[str, str]:
+    run_dir = get_run_dir(request, run_id)
+    _candidate_artifact_dir(run_dir, candidate_name)
+    return _unified_candidate_diff(
+        repo_root=_repo_root(request),
+        run_dir=run_dir,
+        candidate_name=candidate_name,
+    )
+
+
+@router.get("/runs/{run_id}/candidates/{candidate_name}/test-output")
+async def get_candidate_test_output(
+    run_id: str,
+    candidate_name: str,
+    request: Request,
+) -> dict[str, str]:
+    run_dir = get_run_dir(request, run_id)
+    candidate_dir = _candidate_artifact_dir(run_dir, candidate_name)
+    return {
+        "candidate": candidate_name,
+        "output": _candidate_test_output(candidate_dir),
+    }
 
 
 @router.delete("/runs/{run_id}")

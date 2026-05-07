@@ -209,6 +209,14 @@ def main() -> None:
     info = wait_for_run(run_id, "completed")
     assert info["current_iteration"] == 2
 
+    diff, _headers = request_json("GET", f"/runs/{run_id}/candidates/_mock_iter_1/diff")
+    assert "agents/_mock_iter_1.py" in diff["diff"]
+    test_output, _headers = request_json(
+        "GET",
+        f"/runs/{run_id}/candidates/_mock_iter_1/test-output",
+    )
+    assert "accuracy:" in test_output["output"]
+
     checkpoints, _headers = request_json("GET", f"/runs/{run_id}/checkpoints")
     checkpoint_rows = checkpoints["checkpoints"]
     assert checkpoint_rows, "expected at least one checkpoint"
