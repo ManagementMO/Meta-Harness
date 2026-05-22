@@ -200,7 +200,15 @@ export async function resolveCheckpointForNode(
   runId: string,
   node: { candidate: string; iteration: number; threadId?: string },
 ): Promise<string | null> {
-  const raw = await fetchCheckpoints(runId);
+  let raw: unknown;
+  try {
+    raw = await fetchCheckpoints(runId);
+  } catch {
+    // Some runs (especially dry-runs) may not expose checkpoint history yet.
+    // Returning null lets callers surface a graceful "no checkpoint" message
+    // instead of throwing an unhandled rejection from click handlers.
+    return null;
+  }
   const rows = (raw as { checkpoints?: unknown }).checkpoints;
   if (!Array.isArray(rows)) return null;
 

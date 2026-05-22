@@ -1,0 +1,582 @@
+{
+  "/Applications/projects/meta_harness/frontend/dashboard/postcss.config.mjs": {
+    "mtime": 1777175527.7293706,
+    "hash": "239f3ebf717465dc636818a1a619398d"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/next-env.d.ts": {
+    "mtime": 1777203415.4938686,
+    "hash": "d0f8375ae1199dc7acd3977fc33b78b8"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/playwright.config.ts": {
+    "mtime": 1777179380.4417498,
+    "hash": "59287ecda82dbcaad517b10bc4a892bb"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/eslint.config.mjs": {
+    "mtime": 1777175527.7267506,
+    "hash": "dfa1f5f6a7037bf39dc510f30b180002"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/next.config.ts": {
+    "mtime": 1777178139.4182725,
+    "hash": "efbb3038842cbf77e7b9363b296c6f34"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/e2e/dashboard.spec.ts": {
+    "mtime": 1777199560.4632654,
+    "hash": "4858ef0a8b10bb657d84dfc32579722a"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/middleware.ts": {
+    "mtime": 1777204935.2913365,
+    "hash": "4ba792ae7efed974d3c814aede367afc"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/app/layout.tsx": {
+    "mtime": 1777199560.466084,
+    "hash": "5a5f16c0e65789112650652e1bc8d8e3"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/app/page.tsx": {
+    "mtime": 1777208843.1458182,
+    "hash": "9ced8c776ba8d6cc0e7e6b7bc9bb6cc6"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/app/runs/[run_id]/page.tsx": {
+    "mtime": 1777208774.9781797,
+    "hash": "bf47132572091456b805208bff590029"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/DecisionLog.tsx": {
+    "mtime": 1778376279.1234045,
+    "hash": "b33a2c2acd6ccb480591753d2af061aa"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/TopBar.tsx": {
+    "mtime": 1777208774.9803317,
+    "hash": "1b5fbb5ec18b3937d67c159322973607"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/ContextPanel.tsx": {
+    "mtime": 1777210039.3739963,
+    "hash": "1ccd32f04b5d576bb4594395ba9f419d"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/ScoreChart.tsx": {
+    "mtime": 1777210073.128459,
+    "hash": "fd36088e9c55bed212107f71fa2a085e"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/ForkEvent.tsx": {
+    "mtime": 1777205768.7469883,
+    "hash": "fd65bc733b55ab3673e7bbd4a622b5e3"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/TrajectoryTree.tsx": {
+    "mtime": 1777208774.980959,
+    "hash": "df9811d78baae278f55f63aa907640dc"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/MemoryPanel.tsx": {
+    "mtime": 1777204844.1011572,
+    "hash": "bd60b9c80d68f10e5e068f273e5c44ab"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/StatusBar.tsx": {
+    "mtime": 1777204844.1023922,
+    "hash": "0340b021d5fba8e11a14f503935c9fbe"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/DiffViewer.tsx": {
+    "mtime": 1777193159.8334126,
+    "hash": "6d9316a19c095b22310f28a86cc11edb"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/ForkModal.tsx": {
+    "mtime": 1778376279.1233945,
+    "hash": "41acedbd6a8f3d0b6cd5c33a13ee1317"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/TestOutput.tsx": {
+    "mtime": 1777175527.73803,
+    "hash": "9bc5b370fb1ac5faa7b70949d4436c7b"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/ui/FilterBar.tsx": {
+    "mtime": 1777199560.4697394,
+    "hash": "209b879b4e5d0674afcaaa37fd186943"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/ui/PhasePipeline.tsx": {
+    "mtime": 1777175527.7404392,
+    "hash": "1e36c84345ad47c574f8e2ce54810b21"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/components/ui/Badge.tsx": {
+    "mtime": 1777175527.7396085,
+    "hash": "f376f284414df057bfd1c429c070d26e"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/lib/auth0.ts": {
+    "mtime": 1777204935.290998,
+    "hash": "5c4d4e2e4a09b575a09bd69aa8f9b7e8"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/lib/state.ts": {
+    "mtime": 1777210041.7581024,
+    "hash": "658ca02c2d87bdb5907de87a50257765"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/lib/api.ts": {
+    "mtime": 1778376279.1233,
+    "hash": "2e800fbd41b311119d4ff7a2517e1799"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/lib/sse.ts": {
+    "mtime": 1777208774.9819021,
+    "hash": "a2052117cf0d347440c3b38ae228cba0"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/src/lib/types.ts": {
+    "mtime": 1777210036.0048478,
+    "hash": "943f51b913a0c33162f52e26f6f889fd"
+  },
+  "/Applications/projects/meta_harness/agents/baseline.py": {
+    "mtime": 1777157573.5184994,
+    "hash": "68f209b64450382e7f74ae9aa38ab8ba"
+  },
+  "/Applications/projects/meta_harness/agents/_mock_iter_5.py": {
+    "mtime": 1777229925.4940877,
+    "hash": "0f7341beff05ff4fbab50d2bf1ea266b"
+  },
+  "/Applications/projects/meta_harness/agents/structured_tool_results.py": {
+    "mtime": 1777207472.8240786,
+    "hash": "5b82a1677d2bfc968134c57e097db7b7"
+  },
+  "/Applications/projects/meta_harness/agents/_mock_iter_1.py": {
+    "mtime": 1777230403.255926,
+    "hash": "27dde17edd0bf0954f8d8afb8f5fd521"
+  },
+  "/Applications/projects/meta_harness/agents/__init__.py": {
+    "mtime": 1777157573.518348,
+    "hash": "9f9f5c5c74ee6eecc0aabac049183817"
+  },
+  "/Applications/projects/meta_harness/agents/_mock_iter_4.py": {
+    "mtime": 1777229925.4853466,
+    "hash": "5e60c40fa01f76ad0de99690eeb2ad5e"
+  },
+  "/Applications/projects/meta_harness/agents/_mock_iter_3.py": {
+    "mtime": 1777230403.2832396,
+    "hash": "31426d62ed68b393b1d385c4706ce7fc"
+  },
+  "/Applications/projects/meta_harness/agents/_mock_iter_2.py": {
+    "mtime": 1777230403.2771366,
+    "hash": "bd33ca59d7c63ce185c6594b9e58a6c0"
+  },
+  "/Applications/projects/meta_harness/agents/evidence_first_act.py": {
+    "mtime": 1777207338.9015007,
+    "hash": "6e837b249e994765ec433b6358bb23bb"
+  },
+  "/Applications/projects/meta_harness/backend/conftest.py": {
+    "mtime": 1777157573.5204864,
+    "hash": "6b5525a0faf522baba0d5e70dda8ed0d"
+  },
+  "/Applications/projects/meta_harness/backend/app/__init__.py": {
+    "mtime": 1777157573.5187926,
+    "hash": "2a02042d856d9505c157c7e0fd52544b"
+  },
+  "/Applications/projects/meta_harness/backend/app/cli.py": {
+    "mtime": 1777204844.0951228,
+    "hash": "93c31163d123f979426b372578362f2f"
+  },
+  "/Applications/projects/meta_harness/backend/app/streaming.py": {
+    "mtime": 1777177640.8929944,
+    "hash": "5c75fe75f9bd7e77554581486ac6d7d9"
+  },
+  "/Applications/projects/meta_harness/backend/app/main.py": {
+    "mtime": 1777204844.095595,
+    "hash": "c1f9bbf57044c150ed3b53eb93eba892"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/harness.py": {
+    "mtime": 1777175576.3836157,
+    "hash": "856d355fbcdd6ec4b818cfae192a79c8"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/persistence.py": {
+    "mtime": 1777179817.347907,
+    "hash": "eb60769734e27fffaf81b15082cbbca6"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/branches.py": {
+    "mtime": 1777177640.891716,
+    "hash": "4e9911b2bc3f343b7d12a8329c8e2102"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/inner.py": {
+    "mtime": 1777199560.4512246,
+    "hash": "13f35926807cc1955368b4cab39fa612"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/memory.py": {
+    "mtime": 1777186740.9618812,
+    "hash": "f9a6554fadd82613ed4c693473557427"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/tools.py": {
+    "mtime": 1777157573.520332,
+    "hash": "5421a04929589647212a0a6e0385ee0a"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/__init__.py": {
+    "mtime": 1777157573.5193543,
+    "hash": "3df007ebda94e48cc886f9948ad796b6"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/outer.py": {
+    "mtime": 1777199560.4519203,
+    "hash": "d864700701ec980d5b04d9eb5859dc7e"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/sandbox.py": {
+    "mtime": 1777157573.520079,
+    "hash": "aef797c9b7c02c3903def0be8fdaab70"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/proposer.py": {
+    "mtime": 1777204844.0965424,
+    "hash": "c8abd1f95e52a9dc7aeb2dcc87c2a04f"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/runs.py": {
+    "mtime": 1777199560.4525285,
+    "hash": "f0bf7fa55cc3522f9f25cf4ae3340c2a"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/frontier.py": {
+    "mtime": 1777175576.3832903,
+    "hash": "ba114b3dc551fd8c506aac154197d4f3"
+  },
+  "/Applications/projects/meta_harness/backend/app/meta_harness/state.py": {
+    "mtime": 1777157573.5201888,
+    "hash": "aab7b51f9a8ed9c32389c1d554a1994e"
+  },
+  "/Applications/projects/meta_harness/backend/app/api/branches.py": {
+    "mtime": 1777177640.8894734,
+    "hash": "dec929f63aacbca8ed3fcebd2e90a656"
+  },
+  "/Applications/projects/meta_harness/backend/app/api/memory.py": {
+    "mtime": 1777186740.9608927,
+    "hash": "7e3acf4b347d3adcd5f0482fd877cd40"
+  },
+  "/Applications/projects/meta_harness/backend/app/api/events.py": {
+    "mtime": 1777177640.8898911,
+    "hash": "aef31445806e0755f47b5ff036fa3ac2"
+  },
+  "/Applications/projects/meta_harness/backend/app/api/__init__.py": {
+    "mtime": 1777177640.8892667,
+    "hash": "16dc650ea7fbb8984d99d44995b35f0b"
+  },
+  "/Applications/projects/meta_harness/backend/app/api/checkpoints.py": {
+    "mtime": 1777177640.889682,
+    "hash": "30821e5faddb57895578fa14bec32d84"
+  },
+  "/Applications/projects/meta_harness/backend/app/api/forks.py": {
+    "mtime": 1777177640.8901165,
+    "hash": "49f323e9faedbbd438c73d957eda1614"
+  },
+  "/Applications/projects/meta_harness/backend/app/api/runs.py": {
+    "mtime": 1777199560.4507058,
+    "hash": "df3c95b48d7d7f4f4b0c9414de6b7799"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_outer.py": {
+    "mtime": 1777199560.4543836,
+    "hash": "f64094cc8c2c2321a0ec67fac1a69d22"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_memory_e2e.py": {
+    "mtime": 1777186740.9622285,
+    "hash": "52c459c920f8461e6d1995c07c4927c3"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_streaming.py": {
+    "mtime": 1777177640.8938715,
+    "hash": "2c912198d312c818996875f408abb3c8"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_persistence.py": {
+    "mtime": 1777175576.386968,
+    "hash": "e69471a3a92fb9819eac5fc1bffb9684"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_branches.py": {
+    "mtime": 1777177640.8936553,
+    "hash": "de4e6e4ef26c70e13cfd5a9ae04db9d7"
+  },
+  "/Applications/projects/meta_harness/backend/tests/__init__.py": {
+    "mtime": 1777157573.5207207,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_state.py": {
+    "mtime": 1777157573.5210686,
+    "hash": "9075e6417d6d7263537cd72c969c3935"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_sandbox.py": {
+    "mtime": 1777157573.5209627,
+    "hash": "a74d1eb7982dadad52ec086ec2d07602"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_frontier.py": {
+    "mtime": 1777175576.3856442,
+    "hash": "7fc9004d7f05d635475c470175362ded"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_inner.py": {
+    "mtime": 1777199560.4538279,
+    "hash": "48720cf44a5927f89804beab1859ffb1"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_memory.py": {
+    "mtime": 1777175576.3861392,
+    "hash": "6fe02e9d4fbf90fc3df3f72343a5ff7d"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_proposer.py": {
+    "mtime": 1777204844.0979373,
+    "hash": "feadc35d436701bddf80d24f34f9d1cd"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_api.py": {
+    "mtime": 1777204844.097173,
+    "hash": "ea749b9ed5d38c58d2e69356ac37bef1"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_tools.py": {
+    "mtime": 1777157573.5212884,
+    "hash": "3cc8fc0ae1546be0ce72f4e4f0b0fc81"
+  },
+  "/Applications/projects/meta_harness/backend/tests/test_cli.py": {
+    "mtime": 1777204844.097671,
+    "hash": "8151286356f504a6dccf104d431e9af9"
+  },
+  "/Applications/projects/meta_harness/sdk/meta_harness/__init__.py": {
+    "mtime": 1777157573.5286965,
+    "hash": "956d803af4917347b963be0434081e95"
+  },
+  "/Applications/projects/meta_harness/scripts/smoke_api.py": {
+    "mtime": 1777199560.4726715,
+    "hash": "254654fffa9bdbe0539ccf9179fd96f3"
+  },
+  "/Applications/projects/meta_harness/eval/__init__.py": {
+    "mtime": 1777157573.5226774,
+    "hash": "74f78bd38082683d5da2b0736638a20f"
+  },
+  "/Applications/projects/meta_harness/eval/score.py": {
+    "mtime": 1777157573.5228195,
+    "hash": "0c6a36b43200b0e003f9d3154d3165d4"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-003-refactor/workspace/util.py": {
+    "mtime": 1777157573.5252078,
+    "hash": "346478a4e9030d828fadae578cd1b10b"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-003-refactor/workspace/tests/__init__.py": {
+    "mtime": 1777157573.5249786,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-003-refactor/workspace/tests/test_util.py": {
+    "mtime": 1777199560.4604826,
+    "hash": "60aae6e7475779113516e729a2af2f5f"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-002-add-function/workspace/stats.py": {
+    "mtime": 1777157573.5242057,
+    "hash": "20bc5358bf50c1f790eb5fdec272ce1f"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-002-add-function/workspace/tests/test_stats.py": {
+    "mtime": 1777199560.4596498,
+    "hash": "6f5a996eb7da578d6ac9b3bb56774e33"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-002-add-function/workspace/tests/__init__.py": {
+    "mtime": 1777157573.5243256,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-004-handle-error/workspace/parser.py": {
+    "mtime": 1777157573.5255902,
+    "hash": "268009d99e0e30295029a59db57799ca"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-004-handle-error/workspace/tests/test_parser.py": {
+    "mtime": 1777199560.4613903,
+    "hash": "d3e5fbb0081fd00487f2cd20d14a0fdd"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-004-handle-error/workspace/tests/__init__.py": {
+    "mtime": 1777157573.5258253,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-001-fix-typo/workspace/calculator.py": {
+    "mtime": 1777157573.5233126,
+    "hash": "029b46cf169c0b68e5c4339467eefdb5"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-001-fix-typo/workspace/tests/__init__.py": {
+    "mtime": 1777157573.5235505,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-001-fix-typo/workspace/tests/test_calculator.py": {
+    "mtime": 1777199560.4590697,
+    "hash": "f86129d73c96b4f4b3d4e2db7c05e227"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-005-implement-spec/workspace/tests/__init__.py": {
+    "mtime": 1777157573.5267513,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-005-implement-spec/workspace/tests/test_geometry.py": {
+    "mtime": 1777199560.462068,
+    "hash": "257fef9a70ca90cda9fb734f3d4049c6"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-005-implement-spec/workspace/geometry/__init__.py": {
+    "mtime": 1777157573.5265284,
+    "hash": "39262e953f6323bf0c599ebc8051da3f"
+  },
+  "/Applications/projects/meta_harness/eval/holdout/task-007-implement-stack/workspace/stack.py": {
+    "mtime": 1777179817.350377,
+    "hash": "d52cf49c0e19131b43863db143c9529f"
+  },
+  "/Applications/projects/meta_harness/eval/holdout/task-007-implement-stack/workspace/tests/test_stack.py": {
+    "mtime": 1777179817.350779,
+    "hash": "099a9cc33af71f0d5bcd6d3238003a8f"
+  },
+  "/Applications/projects/meta_harness/eval/holdout/task-007-implement-stack/workspace/tests/__init__.py": {
+    "mtime": 1777179817.350519,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/eval/holdout/task-006-fix-recursion/workspace/factorial.py": {
+    "mtime": 1777179817.3491108,
+    "hash": "2cc3e38bbc2eafe1b36ba60a7f99928c"
+  },
+  "/Applications/projects/meta_harness/eval/holdout/task-006-fix-recursion/workspace/tests/test_factorial.py": {
+    "mtime": 1777179817.3496559,
+    "hash": "c2e80a594bf65ad937720214be5a19d6"
+  },
+  "/Applications/projects/meta_harness/eval/holdout/task-006-fix-recursion/workspace/tests/__init__.py": {
+    "mtime": 1777179817.3493674,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Applications/projects/meta_harness/ARCHITECTURE_SECTION_1.md": {
+    "mtime": 1777199560.4493918,
+    "hash": "576021a8e44d99e591e2294b1d9e950d"
+  },
+  "/Applications/projects/meta_harness/relay_v7_appendix_a_worktrees.md": {
+    "mtime": 1777157573.5278494,
+    "hash": "5b0fb4accb9931ed12d5598631fca4ef"
+  },
+  "/Applications/projects/meta_harness/README.md": {
+    "mtime": 1777199560.450047,
+    "hash": "c9fe6ece932b90fd74dd200b5d85bb04"
+  },
+  "/Applications/projects/meta_harness/relay_v7_appendix_c_inner_loop.md": {
+    "mtime": 1777157573.5284307,
+    "hash": "8456eb3266dc59b425c1e31aca352175"
+  },
+  "/Applications/projects/meta_harness/relay_metaharness_v7.md": {
+    "mtime": 1777157573.5273938,
+    "hash": "b108eacf0c90f7597b860594cb58a11b"
+  },
+  "/Applications/projects/meta_harness/AGENTS.md": {
+    "mtime": 1777198570.774441,
+    "hash": "ede9a2802b3025f22fb48ba023ee5716"
+  },
+  "/Applications/projects/meta_harness/relay_v7_appendix_b_metaharness_internals.md": {
+    "mtime": 1777157573.528059,
+    "hash": "f1ef6dae649b6e63df7a959413db16fd"
+  },
+  "/Applications/projects/meta_harness/infra/docker-compose.yml": {
+    "mtime": 1777157573.5270872,
+    "hash": "b0fcbfb2d9eb65e9639eef4e3a1646db"
+  },
+  "/Applications/projects/meta_harness/frontend/stitch_mcp.md": {
+    "mtime": 1777175527.741561,
+    "hash": "be396dffe452ece063b0b9a2e69d14cb"
+  },
+  "/Applications/projects/meta_harness/frontend/mockup.html": {
+    "mtime": 1777175527.741179,
+    "hash": "8e672e3b5643cd19cf5df6e5a10b1c09"
+  },
+  "/Applications/projects/meta_harness/frontend/DESIGN.md": {
+    "mtime": 1777199560.462664,
+    "hash": "4e17433689c5c32c5fa0c8bece05c5eb"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/README.md": {
+    "mtime": 1777175527.7264924,
+    "hash": "f15aaa42d5d299d091b1171097ea56ad"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/AGENTS.md": {
+    "mtime": 1777175527.7259142,
+    "hash": "9e09241799026ac05be315a2f0b50055"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/CLAUDE.md": {
+    "mtime": 1777175527.7262223,
+    "hash": "5c27369b226fcf2be8a6cfe52224e767"
+  },
+  "/Applications/projects/meta_harness/docs/PROJECT_STATUS.md": {
+    "mtime": 1777208774.962845,
+    "hash": "fa3f0f5c3666a785f9cb1294411bac94"
+  },
+  "/Applications/projects/meta_harness/docs/TEAM_HANDOFF.md": {
+    "mtime": 1777199560.4582374,
+    "hash": "ace61b7b892b98fd95e05dedf1243249"
+  },
+  "/Applications/projects/meta_harness/docs/PROJECT_KNOWLEDGE_BASE.md": {
+    "mtime": 1777199560.4563801,
+    "hash": "b8731f243d575305684b9d8b174f5926"
+  },
+  "/Applications/projects/meta_harness/docs/DEFINITION_OF_DONE.md": {
+    "mtime": 1777157573.5218172,
+    "hash": "cc05c270176c6a8c57e0264865ebdd70"
+  },
+  "/Applications/projects/meta_harness/docs/PROJECT_LAYOUT.md": {
+    "mtime": 1777199560.4570472,
+    "hash": "d46ce7b93219956882a934acd12b4e23"
+  },
+  "/Applications/projects/meta_harness/docs/INTERFACES.md": {
+    "mtime": 1777177640.8945591,
+    "hash": "400d6e1561e8cc45127cf984e2174894"
+  },
+  "/Applications/projects/meta_harness/docs/IMPLEMENTATION_CLARITY.md": {
+    "mtime": 1777208774.9901161,
+    "hash": "ef05f3bfa798478e6dfa5eaceb1ba3c2"
+  },
+  "/Applications/projects/meta_harness/docs/STEP_9_HANDOFF.md": {
+    "mtime": 1777177640.8951864,
+    "hash": "7b1d1bee5b234e626efa8cbdf440dae9"
+  },
+  "/Applications/projects/meta_harness/docs/BUILD_ORDER.md": {
+    "mtime": 1777199560.455256,
+    "hash": "149cbd5c3136e0e5c57d4e5315631be9"
+  },
+  "/Applications/projects/meta_harness/skills/meta-harness-coding-agent/SKILL.md": {
+    "mtime": 1777175576.387719,
+    "hash": "11bdfe57ab64082639a9339ca32c2fe2"
+  },
+  "/Applications/projects/meta_harness/eval/tasks/task-005-implement-spec/workspace/README.md": {
+    "mtime": 1777157573.5263,
+    "hash": "ba3920d43f65a1836161cb076b29115f"
+  },
+  "/Applications/projects/meta_harness/runs/preset-balanced-1777207223229/candidates/evidence_first_act/traces/task-001-fix-typo-trial-2/summary.md": {
+    "mtime": 1777207436.4896607,
+    "hash": "1c8c76573920a38af2243eeb5fae4c1f"
+  },
+  "/Applications/projects/meta_harness/runs/preset-balanced-1777207223229/candidates/evidence_first_act/traces/task-002-add-function-trial-1/summary.md": {
+    "mtime": 1777207658.3017824,
+    "hash": "44c5f67fb7acb055d86d28205a8c19b2"
+  },
+  "/Applications/projects/meta_harness/runs/preset-balanced-1777207223229/candidates/evidence_first_act/traces/task-001-fix-typo-trial-1/summary.md": {
+    "mtime": 1777207436.9191248,
+    "hash": "bd70909703ecb7721404320aa5c05966"
+  },
+  "/Applications/projects/meta_harness/runs/preset-balanced-1777207223229/proposer-sessions/iter-1/transcript.txt": {
+    "mtime": 1777207408.7494814,
+    "hash": "b5b6dcaff91c47a4377d225d426acafe"
+  },
+  "/Applications/projects/meta_harness/runs/preset-balanced-1777207223229/proposer-sessions/iter-1/system_prompt.txt": {
+    "mtime": 1777207223.2681043,
+    "hash": "d80149a75a9bf203c9e5b0bea3927e4a"
+  },
+  "/Applications/projects/meta_harness/runs/preset-balanced-1777207223229/proposer-sessions/iter-1/user_prompt.txt": {
+    "mtime": 1777207223.2682629,
+    "hash": "d8d0338646e71d1c089caf85c6e8089b"
+  },
+  "/Applications/projects/meta_harness/runs/qa-real-1777206363/candidates/_mock_iter_1/traces/task-001-fix-typo-trial-1/summary.md": {
+    "mtime": 1777206381.9291687,
+    "hash": "f121dc7026b3229e0f116c722a941dc3"
+  },
+  "/Applications/projects/meta_harness/runs/preset-quick-smoke-1777207281895/proposer-sessions/iter-1/transcript.txt": {
+    "mtime": 1777207492.9281735,
+    "hash": "886d3240db2f06e872b841773842292b"
+  },
+  "/Applications/projects/meta_harness/runs/preset-quick-smoke-1777207281895/proposer-sessions/iter-1/system_prompt.txt": {
+    "mtime": 1777207281.9377418,
+    "hash": "d80149a75a9bf203c9e5b0bea3927e4a"
+  },
+  "/Applications/projects/meta_harness/runs/preset-quick-smoke-1777207281895/proposer-sessions/iter-1/user_prompt.txt": {
+    "mtime": 1777207281.9378667,
+    "hash": "37b1675d45540d4d4b444938fec77175"
+  },
+  "/Applications/projects/meta_harness/runs/qa-real-1777206369/candidates/_mock_iter_1/traces/task-002-add-function-trial-1/summary.md": {
+    "mtime": 1777206557.4487813,
+    "hash": "c574dc1612686a5e9bfd5436850a93e5"
+  },
+  "/Applications/projects/meta_harness/runs/qa-real-1777206369/candidates/_mock_iter_1/traces/task-001-fix-typo-trial-1/summary.md": {
+    "mtime": 1777206382.9571161,
+    "hash": "fc4b5dcc738623e2873cf3d5e9391b31"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/public/file.svg": {
+    "mtime": 1777175527.7297702,
+    "hash": "d09f95206c3fa0bb9bd9fefabfd0ea71"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/public/vercel.svg": {
+    "mtime": 1777175527.7305708,
+    "hash": "c0af2f507b369b085b35ef4bbe3bcf1e"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/public/next.svg": {
+    "mtime": 1777175527.7303445,
+    "hash": "8e061864f388b47f33a1c3780831193e"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/public/globe.svg": {
+    "mtime": 1777175527.7300613,
+    "hash": "2aaafa6a49b6563925fe440891e32717"
+  },
+  "/Applications/projects/meta_harness/frontend/dashboard/public/window.svg": {
+    "mtime": 1777175527.7308116,
+    "hash": "a2760511c65806022ad20adf74370ff3"
+  }
+}

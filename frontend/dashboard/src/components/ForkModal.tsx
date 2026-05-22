@@ -29,7 +29,9 @@ export function ForkModal({ candidateName, checkpointId, parentThreadId, onClose
       const result = await forkRun(params.run_id, {
         parent_checkpoint_id: checkpointId,
         parent_thread_id: parentThreadId,
-        mods: { proposer_prior: prior.trim() },
+        // Pin fork proposer lineage to the selected node so the new
+        // candidate branches from the exact error/source point in the tree.
+        mods: { proposer_prior: prior.trim(), best_candidate: candidateName },
         name: fallbackBranchId,
       });
       branchId = result.branch_id ?? fallbackBranchId;

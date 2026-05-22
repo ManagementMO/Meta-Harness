@@ -100,10 +100,11 @@ export function DecisionLog() {
           <ForkEventCard key={i} fork={fork} />
         ))}
 
-        {iterations.map(chapter => {
+        {iterations.map((chapter, idx) => {
           const chapterEntries = filteredEntries.filter(e => e.candidateName === chapter.candidateName);
+          const chapterKey = `${chapter.candidateName}-${chapter.iteration}-${chapter.threadId ?? 'thread'}-${idx}`;
           return (
-            <div key={chapter.candidateName} className="mb-4 animate-fade-in-slow">
+            <div key={chapterKey} className="mb-4 animate-fade-in-slow">
               <div className={`border-l-2 ${chapter.isForkBranch ? 'border-purple' : 'border-border-active'} pl-3 py-2 mb-2`}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-[10px] font-semibold ${chapter.isForkBranch ? 'text-purple' : 'text-text-hi'}`}>
