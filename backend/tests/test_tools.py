@@ -190,6 +190,42 @@ def test_apply_patch_path_traversal_blocked(tmp_path: Path):
     assert out["error_type"] == "invalid_path"
 
 
+def test_apply_patch_rejects_patch_for_different_file(tmp_path: Path):
+    (tmp_path / "safe.py").write_text("x = 1\n")
+    (tmp_path / "other.py").write_text("y = 1\n")
+    patch = """\
+--- a/other.py
++++ b/other.py
+@@ -1 +1 @@
+-y = 1
++y = 2
+"""
+
+    out = apply_patch(tmp_path, "safe.py", patch)
+
+    assert out["status"] == "error"
+    assert out["error_type"] == "path_mismatch"
+    assert (tmp_path / "safe.py").read_text() == "x = 1\n"
+    assert (tmp_path / "other.py").read_text() == "y = 1\n"
+
+
+def test_apply_patch_rejects_escaping_patch_header(tmp_path: Path):
+    (tmp_path / "safe.py").write_text("x = 1\n")
+    patch = """\
+--- a/../escape.py
++++ b/../escape.py
+@@ -1 +1 @@
+-x = 1
++x = 2
+"""
+
+    out = apply_patch(tmp_path, "safe.py", patch)
+
+    assert out["status"] == "error"
+    assert out["error_type"] == "invalid_patch_path"
+    assert (tmp_path / "safe.py").read_text() == "x = 1\n"
+
+
 # ──────────────────────────────────────────────────────────────────────
 # run_bash.
 # ──────────────────────────────────────────────────────────────────────

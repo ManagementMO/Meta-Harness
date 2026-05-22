@@ -1,4 +1,6 @@
 'use client';
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { useDashboard, useDashboardDispatch } from '@/lib/state';
 import { ScoreChart } from './ScoreChart';
 import { DiffViewer } from './DiffViewer';
@@ -7,16 +9,41 @@ import { MemoryPanel } from './MemoryPanel';
 import { getDiff, getTestOutput } from '@/lib/api';
 
 export function ContextPanel() {
+  const params = useParams<{ run_id: string }>();
   const { contextTab, selectedNode, tree, mode } = useDashboard();
   const dispatch = useDashboardDispatch();
+  const [diffResult, setDiffResult] = useState<{ candidate: string; value: string | null } | null>(null);
+  const [testResult, setTestResult] = useState<{ candidate: string; value: string | null } | null>(null);
 
   const tabs = ['chart', 'diff', 'test', 'memory'] as const;
   const selected = selectedNode ?? tree.find(n => n.status === 'best')?.candidate ?? tree[0]?.candidate ?? null;
   const selectedTreeNode = tree.find(n => n.candidate === selected) ?? null;
-  const diff = getDiff();
-  const testOut = getTestOutput();
+  const diff = diffResult?.candidate === selected ? diffResult.value : null;
+  const testOut = testResult?.candidate === selected ? testResult.value : null;
   const perTask = Object.entries(selectedTreeNode?.scores.per_task ?? {});
   const hasMockTaskData = mode === 'mock' && perTask.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selected || mode !== 'live') return;
+    getDiff(params.run_id, selected)
+      .then(value => {
+        if (!cancelled) setDiffResult({ candidate: selected, value });
+      })
+      .catch(() => {
+        if (!cancelled) setDiffResult({ candidate: selected, value: null });
+      });
+    getTestOutput(params.run_id, selected)
+      .then(value => {
+        if (!cancelled) setTestResult({ candidate: selected, value });
+      })
+      .catch(() => {
+        if (!cancelled) setTestResult({ candidate: selected, value: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, params.run_id, selected]);
 
   const mockDiffPreview = hasMockTaskData
     ? perTask

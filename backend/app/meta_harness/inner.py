@@ -133,13 +133,10 @@ async def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str
     )
 
     messages = [{"role": "user", "content": prompt}]
-    response = await harness._client.messages.create(
-        model=harness.MODEL,
-        max_tokens=harness.MAX_TOKENS,
+    response = await harness._call_llm(
         messages=messages,
         tools=[PLAN_TOOL_SCHEMA],
         tool_choice={"type": "tool", "name": "submit_plan"},
-        system=harness.SYSTEM_PROMPT,
     )
 
     plan_dict: dict[str, Any] = {}

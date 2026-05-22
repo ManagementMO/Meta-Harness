@@ -180,8 +180,15 @@ class OuterLoopRunner:
                 "candidate-created",
                 {
                     "candidate": candidate_name,
+                    "parent_candidate_name": c.get("parent"),
                     "import_path": c["import_path"],
                     "parent": c.get("parent"),
+                    "iteration": iteration,
+                    "status": "seed",
+                    "scores": {"accuracy": 0.0},
+                    "delta": None,
+                    "hypothesis": c.get("hypothesis", ""),
+                    "axis": c.get("axis", "exploitation"),
                 },
             )
         _emit(
@@ -373,10 +380,19 @@ class OuterLoopRunner:
             "eval-result",
             {
                 "candidate": candidate["name"],
+                "parent_candidate_name": candidate.get("parent"),
+                "iteration": candidate.get("iteration"),
+                "status": "evaluated",
                 "accuracy": eval_result["accuracy"],
+                "scores": {
+                    "accuracy": eval_result["accuracy"],
+                    "per_task": eval_result["per_task"],
+                },
                 "per_task": eval_result["per_task"],
                 "tokens": eval_result["tokens"],
                 "cost_usd": eval_result["cost_usd"],
+                "hypothesis": candidate.get("hypothesis", ""),
+                "axis": candidate.get("axis"),
             },
         )
         _emit(
@@ -504,10 +520,29 @@ class OuterLoopRunner:
             config,
             "frontier-updated",
             {
+                "candidate": candidate["name"],
+                "parent_candidate_name": candidate.get("parent"),
                 "iteration": state["iteration"],
                 "frontier": new_frontier_names,
                 "best_candidate": new_best,
+                "best_score": (
+                    (candidate["scores"] or {}).get("accuracy")
+                    if new_best == candidate["name"]
+                    else prev_best_acc
+                ),
+                "status": (
+                    "best"
+                    if accepted and new_best == candidate["name"]
+                    else "rejected"
+                ),
+                "accepted": accepted,
                 "delta": candidate["delta"],
+                "scores": {
+                    "accuracy": cand_acc,
+                    "per_task": (candidate["scores"] or {}).get("per_task", {}),
+                },
+                "hypothesis": candidate.get("hypothesis", ""),
+                "axis": candidate.get("axis"),
             },
         )
         _emit(

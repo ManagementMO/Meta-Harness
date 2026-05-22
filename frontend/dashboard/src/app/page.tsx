@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { createRun, listRuns, isBackendAvailable, type RunListItem } from '@/lib/api';
 
 const TITLE = 'META-HARNESS';

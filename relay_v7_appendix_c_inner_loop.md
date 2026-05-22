@@ -510,7 +510,7 @@ This is the most important part for the meta-harness story. Here's the explicit 
 | `_build_initial_context(orient_summary)` | method | What to surface from orient → plan; tree depth, file count |
 | `_format_tool_result(name, result)` | method | Truncation strategy, error formatting, line-number injection |
 | `_compose_act_prompt(plan)` | method | Plan injection style, recap of orient summary, etc. |
-| `_call_llm(messages, tools)` | method | Anthropic prompt caching, message ordering, reasoning_effort |
+| `_call_llm(messages, tools, *, tool_choice=None)` | method | Anthropic prompt caching, message ordering, forced tool choice |
 | `should_loop_back_to_act(verify_result)` | method | Custom retry logic — e.g., only retry on test failures, not lint |
 | `_summarize_for_overflow(messages)` | method | Context overflow strategy when total tokens > limit |
 | (Reordering phases) | structural | Skip plan for simple tasks; add a re-planning phase after first verify failure |

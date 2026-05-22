@@ -1,6 +1,7 @@
 # Meta-Harness
 
 > *Stanford's Meta-Harness paper had a linear loop. We mapped it onto LangGraph and made it a tree.*
+<img src="https://raw.githubusercontent.com/browser-use/media/main/browser-harness/banner-ink.svg" alt="Browser Harness" width="100%" />
 
 LangGraph-native substrate for **self-improving agent harnesses**. Applies
 the Stanford Meta-Harness paradigm
