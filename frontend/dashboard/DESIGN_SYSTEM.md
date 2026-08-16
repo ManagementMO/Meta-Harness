@@ -21,7 +21,7 @@ The app floats on a near-black obsidian void — never pure `#000`, always dimen
 | `--color-node` | `#0C1016` | opaque fills inside canvases (ReactFlow nodes; NO blur there) |
 
 Atmosphere (body backdrop, fixed, `pointer-events-none`):
-- radial glow top-center: `radial-gradient(1200px 800px at 50% -10%, rgba(105,227,213,0.05), transparent 60%)`
+- radial glow top-center: `radial-gradient(1200px 800px at 50% -10%, rgba(255,255,255,0.05), transparent 60%)`
 - counter-glow bottom-left: `radial-gradient(900px 600px at 8% 110%, rgba(255,255,255,0.025), transparent 55%)`
 - vignette: `radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,0.35) 100%)`
 

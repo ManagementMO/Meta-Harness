@@ -12,14 +12,13 @@ export function FilterBar<T extends string>({
   onSelect: (f: T) => void;
 }) {
   return (
-    <div role="tablist" aria-label="Log filters" className="flex items-center gap-0.5">
+    <div role="group" aria-label="Log filters" className="flex items-center gap-0.5">
       {filters.map((f) => {
         const isActive = active === f;
         return (
           <button
             key={f}
-            role="tab"
-            aria-selected={isActive}
+            aria-pressed={isActive}
             onClick={() => onSelect(f)}
             className={cn(
               "h-6 px-2 rounded-[6px] font-mono text-[10px] uppercase tracking-[0.08em] cursor-pointer",

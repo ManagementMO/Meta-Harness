@@ -268,6 +268,31 @@ pre {
 .react-flow__pane.dragging {
   cursor: grabbing;
 }
+.react-flow__controls {
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px;
+}
+.react-flow__controls-button {
+  width: 22px;
+  height: 22px;
+  background: rgba(12, 16, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #8e99a8;
+  transition: color 150ms var(--ease-glass), background-color 150ms var(--ease-glass);
+}
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e9edf2;
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 10px;
+  max-height: 10px;
+}
 
 /* ── Reduced motion: render final states instantly ── */
 @media (prefers-reduced-motion: reduce) {

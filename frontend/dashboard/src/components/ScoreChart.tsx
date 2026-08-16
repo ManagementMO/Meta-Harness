@@ -167,7 +167,7 @@ export function ScoreChart() {
     <div className="h-full flex flex-col gap-3 min-h-0">
       {/* Headline readouts */}
       <div className="glass-inset rounded-[var(--radius-card)] grid grid-cols-4 divide-x divide-white/5">
-        <Stat label="best score">
+        <Stat label="best">
           {bestNode ? (
             <AnimatedNumber value={bestNode.scores.accuracy} className="text-[15px] font-medium text-frost-bright" />
           ) : (

@@ -122,7 +122,7 @@ function DashboardShell() {
     <div className="h-full flex flex-col overflow-hidden">
       <TopBar onReplay={replayRunProgression} />
       <OuterSpine />
-      <main className="flex-1 grid gap-3 p-3 min-h-0 min-w-0 grid-cols-[15rem_minmax(0,1fr)_minmax(0,21.5rem)] xl:grid-cols-[17.5rem_minmax(0,1fr)_minmax(0,26rem)] 2xl:grid-cols-[19rem_minmax(0,1fr)_minmax(0,30rem)]">
+      <main className="flex-1 grid gap-3 p-3 min-h-0 min-w-0 grid-cols-[15rem_minmax(0,1fr)_minmax(0,21.5rem)] xl:grid-cols-[20rem_minmax(0,1fr)_minmax(0,24rem)] 2xl:grid-cols-[22rem_minmax(0,1fr)_minmax(0,28rem)]">
         <TrajectoryTree />
         <DecisionLog />
         <ContextPanel />

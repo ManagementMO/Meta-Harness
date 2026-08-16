@@ -87,14 +87,13 @@ export function ContextPanel() {
 
   return (
     <GlassPanel>
-      <div role="tablist" aria-label="Context views" className="panel-sheen flex items-center gap-1 h-10 px-2 border-b border-white/6 shrink-0">
+      <div role="group" aria-label="Context views" className="panel-sheen flex items-center gap-1 h-10 px-2 border-b border-white/6 shrink-0">
         {TABS.map((tab) => {
           const active = contextTab === tab;
           return (
             <button
               key={tab}
-              role="tab"
-              aria-selected={active}
+              aria-pressed={active}
               onClick={() => dispatch({ type: "SET_CONTEXT_TAB", payload: tab })}
               className={cn(
                 "relative h-full px-2.5 font-mono text-[10px] uppercase tracking-[0.1em] cursor-pointer",
