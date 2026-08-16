@@ -246,7 +246,7 @@ class EvaluationPolicy(BaseModel):
     max_verify_retries: int = Field(default=3, ge=0)
     allow_global_memory: bool = False
     allow_recursive_children: bool = False
-    random_seed: int | None = None
+    random_seed: int | None = Field(default=None, ge=0, le=2**31 - 2)
     synthetic: bool = False
 
 
@@ -325,7 +325,7 @@ class TaskResult(BaseModel):
     sandbox_profile: str
     runtime_adapter: str
     execution_backend: str
-    random_seed: int | None = None
+    random_seed: int | None = Field(default=None, ge=0, le=2**31 - 2)
     synthetic: bool = False
     started_at: str
     finished_at: str
@@ -352,7 +352,7 @@ class CandidateEvaluation(BaseModel):
     sandbox_profile: str
     runtime_adapter: str
     execution_backend: str
-    random_seed: int | None = None
+    random_seed: int | None = Field(default=None, ge=0, le=2**31 - 2)
     task_hashes: dict[str, str]
     n_tasks: int
     n_trials_per_task: int
@@ -389,7 +389,7 @@ class RunManifest(BaseModel):
     dependency_lock_sha256: str | None = None
     policy: EvaluationPolicy
     parent_policy: str = "best_accuracy"
-    random_seed: int | None = None
+    random_seed: int | None = Field(default=None, ge=0, le=2**31 - 2)
     search_task_ids: list[str]
     holdout_visible: bool = False
     persistence_backend: str

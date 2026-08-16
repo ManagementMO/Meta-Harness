@@ -80,7 +80,7 @@ class CreateRunRequest(BaseModel):
     fresh: bool = True
     run_name: str | None = None
     proposer: Literal["claude", "gemini", "mock"] = "claude"
-    random_seed: int | None = None
+    random_seed: int | None = Field(default=None, ge=0, le=2**31 - 2)
     max_act_turns: int = Field(default=25, ge=1)
     max_verify_retries: int = Field(default=3, ge=0)
     mock_bench: bool | None = None

@@ -304,7 +304,7 @@ def inner(
     run_name: str = typer.Option("inner-test", "--run-name"),
     holdout: bool = typer.Option(False, "--holdout"),
     inner_model: str | None = typer.Option(None, "--inner-model"),
-    seed: int | None = typer.Option(None, "--seed"),
+    seed: int | None = typer.Option(None, "--seed", min=0, max=2**31 - 2),
 ) -> None:
     from app.meta_harness.evaluator import Evaluator
     from app.meta_harness.runs import make_run_dir
@@ -403,7 +403,7 @@ def benchmark(
     run_name: str | None = typer.Option(None, "--run-name"),
     holdout: bool = typer.Option(False, "--holdout"),
     inner_model: str | None = typer.Option(None, "--inner-model"),
-    seed: int | None = typer.Option(None, "--seed"),
+    seed: int | None = typer.Option(None, "--seed", min=0, max=2**31 - 2),
 ) -> None:
     import datetime
 
@@ -500,7 +500,7 @@ def loop(
     parent_policy: str = typer.Option("best_accuracy", "--parent-policy"),
     inner_model: str | None = typer.Option(None, "--inner-model"),
     proposer_model: str | None = typer.Option(None, "--proposer-model"),
-    seed: int | None = typer.Option(None, "--seed"),
+    seed: int | None = typer.Option(None, "--seed", min=0, max=2**31 - 2),
     max_act_turns: int = typer.Option(25, "--max-act-turns", min=1),
     max_verify_retries: int = typer.Option(3, "--max-verify-retries", min=0),
     global_memory: bool = typer.Option(

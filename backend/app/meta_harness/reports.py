@@ -288,6 +288,16 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
         float(session.get("estimated_cost_usd") or 0.0)
         for session in proposer_sessions
     )
+    proposer_billed_values = [
+        session.get("billed_cost_usd", session.get("cost_usd"))
+        for session in proposer_sessions
+    ]
+    proposer_billed_cost = (
+        sum(float(value) for value in proposer_billed_values if value is not None)
+        if proposer_billed_values
+        and all(value is not None for value in proposer_billed_values)
+        else None
+    )
     total_tokens_values = [
         (usage_value(result, "input_tokens"), usage_value(result, "output_tokens"))
         for result in candidate_results.values()
@@ -402,6 +412,7 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
         "proposer_output_tokens": proposer_output_tokens,
         "total_tokens": total_tokens,
         "total_estimated_cost_usd": total_estimated_cost,
+        "proposer_billed_cost_usd": proposer_billed_cost,
         "total_billed_cost_usd": total_billed_cost,
         "total_wall_seconds": total_wall_seconds,
     }

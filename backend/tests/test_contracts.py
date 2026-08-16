@@ -33,6 +33,21 @@ def _policy() -> EvaluationPolicy:
     )
 
 
+def test_evaluation_policy_rejects_out_of_range_seeds() -> None:
+    with pytest.raises(ValidationError):
+        EvaluationPolicy(
+            policy_id="negative-seed",
+            inner_model="gemini-3.1-flash-lite",
+            random_seed=-1,
+        )
+    with pytest.raises(ValidationError):
+        EvaluationPolicy(
+            policy_id="large-seed",
+            inner_model="gemini-3.1-flash-lite",
+            random_seed=2**31 - 1,
+        )
+
+
 def _provenance() -> Provenance:
     return Provenance(
         git_commit="abc123",

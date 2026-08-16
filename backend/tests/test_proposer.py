@@ -87,6 +87,25 @@ def test_claude_propose_preserves_anthropic_api_key_for_cli(monkeypatch, tmp_pat
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
+def test_bounded_evidence_ignores_holdout_artifacts(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    parent_dir = run_dir / "candidates" / "cand_parent"
+    (parent_dir / "traces").mkdir(parents=True)
+    (run_dir / "holdout-result.json").write_text('{"secret": "holdout"}')
+    (run_dir / "evolution_summary.jsonl").write_text('{"candidate": "baseline"}\n')
+    (parent_dir / "traces" / "summary.md").write_text("search evidence")
+
+    evidence = proposer._bounded_evidence(
+        run_dir=run_dir,
+        parent_candidate_dir=parent_dir,
+    )
+
+    serialized = json.dumps(evidence)
+    assert "search evidence" in serialized
+    assert "holdout" not in serialized
+    assert "secret" not in serialized
+
+
 def test_gemini_propose_writes_validated_run_scoped_candidate(
     monkeypatch,
     tmp_path: Path,

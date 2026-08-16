@@ -146,7 +146,21 @@ async def test_finalization_is_separate_and_includes_baseline(tmp_path: Path) ->
         },
     )
 
+    proposer_session = run_dir / "proposer-sessions" / "iter-1"
+    proposer_session.mkdir(parents=True)
+    atomic_write_json(
+        proposer_session / "session.json",
+        {
+            "mode": "claude",
+            "cost_usd": 0.125,
+            "duration_seconds": 1.0,
+        },
+    )
     report_before_finalization = build_run_report(run_dir)
+    assert (
+        report_before_finalization["search_efficiency"]["proposer_billed_cost_usd"]
+        == 0.125
+    )
     assert branch_candidate.candidate_id in report_before_finalization["frontier_ids"]
     assert report_before_finalization["candidate_locations"][branch_candidate.candidate_id] == "branches/branch-a"
 
