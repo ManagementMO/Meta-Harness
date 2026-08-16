@@ -286,7 +286,7 @@ export default function Home() {
                     <span className="font-mono text-[11px] text-ink truncate flex-1">{run.run_id}</span>
                     {run.synthetic && <Badge label="SYN" tone="sand" />}
                     <span className="font-mono text-[10px] tabular-nums text-ink-low shrink-0">
-                      iter {run.iteration}
+                      iter {run.iteration ?? run.current_iteration ?? 0}
                     </span>
                     <span className="font-mono text-[10px] tabular-nums text-ink-mid w-10 text-right shrink-0">
                       {run.best_score !== null ? run.best_score.toFixed(2) : "—"}

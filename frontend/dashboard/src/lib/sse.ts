@@ -213,6 +213,9 @@ export function startSSE(
       const checkpoint = valueLabel(data.checkpoint_id) ?? "unknown";
       const node = valueLabel(data.node) ?? "graph";
       const candidate = valueLabel(data.candidate_id) ?? valueLabel(data.candidate);
+      if (checkpoint !== "unknown") {
+        dispatch({ type: "SET_CHECKPOINT", payload: checkpoint });
+      }
       if (checkpoint !== "unknown" && candidate) {
         dispatch({
           type: "SET_CHECKPOINT_ID",
