@@ -47,8 +47,8 @@ const PRESET_SUITES: PresetSuite[] = [
 ];
 
 const reveal = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0 },
+  hidden: { opacity: 0, transform: "translateY(10px)" },
+  show: { opacity: 1, transform: "translateY(0px)" },
 };
 
 function runStatusTone(status: string): "moss" | "ember" | "sand" | "neutral" {

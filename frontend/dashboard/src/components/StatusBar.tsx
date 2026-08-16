@@ -48,7 +48,7 @@ export function StatusBar() {
       <span className="shrink-0">{run?.branches ?? 0} branches</span>
       <Divider />
       <span className="shrink-0 text-ink-mid" title={ckpt ?? undefined}>
-        ckpt {ckpt ? `${ckpt.slice(0, 8)}…${ckpt.slice(-4)}` : "—"}
+        {ckpt ? `${ckpt.slice(0, 8)}…${ckpt.slice(-4)}` : "ckpt —"}
       </span>
 
       {lastError && (

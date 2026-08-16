@@ -168,9 +168,30 @@ pre {
   );
   pointer-events: none;
 }
-.light-sweep:hover::after {
-  transform: translateX(130%) skewX(-18deg);
-  transition: transform 600ms var(--ease-glass);
+@media (hover: hover) and (pointer: fine) {
+  .light-sweep:hover::after {
+    transform: translateX(130%) skewX(-18deg);
+    transition: transform 600ms var(--ease-glass);
+  }
+}
+
+/* node materializes — never from scale(0). Transform via keyframes; opacity
+   fades from @starting-style so status opacity (e.g. rejected 45%) is kept. */
+@keyframes node-in {
+  from {
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    transform: scale(1) translateY(0);
+  }
+}
+.node-in {
+  animation: node-in 220ms var(--ease-glass) backwards;
+}
+@starting-style {
+  .node-in {
+    opacity: 0;
+  }
 }
 
 /* ── Motion vocabulary ── */

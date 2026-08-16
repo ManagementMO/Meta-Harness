@@ -111,8 +111,8 @@ export function ForkModal({ candidateName, checkpointId, parentThreadId, onClose
       />
       <motion.div
         className="relative w-[440px] max-w-full glass-raised rounded-[var(--radius-panel)] overflow-hidden"
-        initial={reduced ? false : { opacity: 0, scale: 0.96, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
+        initial={reduced ? false : { opacity: 0, transform: "scale(0.96) translateY(10px)" }}
+        animate={{ opacity: 1, transform: "scale(1) translateY(0px)" }}
         transition={{ type: "spring", stiffness: 460, damping: 34 }}
         onClick={(e) => e.stopPropagation()}
       >

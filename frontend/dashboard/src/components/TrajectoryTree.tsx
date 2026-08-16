@@ -130,7 +130,7 @@ const CandidateNodeView = memo(function CandidateNodeView({ data }: NodeProps<Ca
     <div
       data-testid="trajectory-node"
       className={cn(
-        "group relative rounded-[10px] border bg-node specular-top cursor-pointer select-none",
+        "node-in group relative rounded-[10px] border bg-node specular-top cursor-pointer select-none",
         "transition-[border-color,box-shadow,opacity] duration-200 ease-[var(--ease-glass)]",
         meta.border,
         node.status === "rejected" && "opacity-45 hover:opacity-80",

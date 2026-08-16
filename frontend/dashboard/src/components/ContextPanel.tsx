@@ -114,7 +114,13 @@ export function ContextPanel() {
         })}
       </div>
 
-      <div className="flex-1 flex flex-col overflow-y-auto px-4 py-4 min-h-0">
+      <motion.div
+        key={contextTab}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        className="flex-1 flex flex-col overflow-y-auto px-4 py-4 min-h-0"
+      >
         {contextTab === "chart" && <div className="flex-1 min-h-0"><ScoreChart /></div>}
 
         {contextTab === "diff" && diff && (
@@ -161,7 +167,7 @@ export function ContextPanel() {
 
         {contextTab === "evidence" && <EvidencePanel />}
         {contextTab === "memory" && <MemoryPanel />}
-      </div>
+      </motion.div>
     </GlassPanel>
   );
 }

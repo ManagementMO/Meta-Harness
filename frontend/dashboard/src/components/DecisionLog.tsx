@@ -41,8 +41,8 @@ const LogEntryRow = memo(function LogEntryRow({
   const reduced = useReducedMotion();
   return (
     <motion.div
-      initial={reduced ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={reduced ? false : { opacity: 0, transform: "translateY(8px)" }}
+      animate={{ opacity: 1, transform: "translateY(0px)" }}
       transition={spring}
     >
       <div
@@ -107,8 +107,8 @@ const ChapterBlock = memo(function ChapterBlock({
 
   return (
     <motion.article
-      initial={reduced ? false : { opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={reduced ? false : { opacity: 0, transform: "translateY(10px)" }}
+      animate={{ opacity: 1, transform: "translateY(0px)" }}
       transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
       className="mb-3"
     >
