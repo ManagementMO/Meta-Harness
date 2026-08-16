@@ -16,8 +16,18 @@ from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, Field
 
 from app.meta_harness import runs as runs_mod
+from app.meta_harness.artifacts import atomic_write_json
 from app.meta_harness.branches import cancel_branch, list_branches
+from app.meta_harness.candidates import load_candidate_artifact_any, locate_candidate
+from app.meta_harness.contracts import RunMode
+from app.meta_harness.ledger import (
+    lifecycle_state,
+    read_events,
+    transition_lifecycle,
+)
 from app.meta_harness.outer import OuterLoopRunner
+from app.meta_harness.reports import build_run_report, finalize_run
+from app.meta_harness.skill_contract import validate_skill
 from app.streaming import emit_run_event
 
 
@@ -36,6 +46,9 @@ class RunRecord:
     skill_path: str | None
     budget: int
     model: str
+    mode: str
+    parent_policy: str
+    synthetic: bool
     current_iteration: int
     run_dir: Path
     graph: Any
@@ -49,12 +62,23 @@ class CreateRunRequest(BaseModel):
     skill_path: str | None = None
     budget: int = Field(default=5, ge=1)
     model: str = "opus"
+    proposer_model: str | None = None
+    inner_model: str | None = None
+    mode: Literal["research", "autonomous"] = "research"
+    parent_policy: Literal["best_accuracy", "pareto_sample"] = "best_accuracy"
+    global_memory: bool = False
     fresh: bool = True
     run_name: str | None = None
     proposer: Literal["claude", "mock"] = "claude"
     mock_bench: bool | None = None
     trials: int = Field(default=5, ge=1)
     workers: int = Field(default=3, ge=1)
+
+
+class FinalizeRunRequest(BaseModel):
+    candidate_ids: list[str] | None = None
+    trials: int | None = Field(default=None, ge=1)
+    workers: int | None = Field(default=None, ge=1)
 
 
 run_registry: dict[str, RunRecord] = {}
@@ -107,6 +131,13 @@ def _resolve_skill_path(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"skill not found: {resolved}",
         )
+    try:
+        validate_skill(resolved)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"invalid skill: {exc}",
+        ) from exc
     return resolved
 
 
@@ -122,6 +153,11 @@ def _build_graph(
     skill_path: Path | None,
     checkpointer: Any,
     memory_store: Any = None,
+    mode: str = "research",
+    parent_policy: str = "best_accuracy",
+    inner_model: str | None = None,
+    proposer_model: str = "opus",
+    allow_global_memory: bool = False,
 ) -> Any:
     runner = OuterLoopRunner(
         run_dir=run_dir,
@@ -134,6 +170,11 @@ def _build_graph(
         skill_path=skill_path,
         checkpointer=checkpointer,
         memory_store=memory_store,
+        mode=mode,
+        parent_policy=parent_policy,
+        inner_model=inner_model,
+        proposer_model=proposer_model,
+        allow_global_memory=allow_global_memory,
     )
     return runner.build()
 
@@ -151,50 +192,43 @@ def _read_manifest(run_dir: Path) -> dict[str, Any] | None:
 
 def _write_manifest_status(run_dir: Path, **updates: Any) -> None:
     manifest = _read_manifest(run_dir) or {}
+    updates.setdefault("updated_at", _now())
     manifest.update(updates)
-    _manifest_path(run_dir).write_text(json.dumps(manifest, indent=2, default=str))
+    atomic_write_json(_manifest_path(run_dir), manifest)
+
+
+def _summary_paths(run_dir: Path) -> list[Path]:
+    paths = [run_dir / "evolution_summary.jsonl"]
+    branches_root = run_dir / "branches"
+    if branches_root.exists():
+        paths.extend(sorted(branches_root.glob("*/evolution_summary.jsonl")))
+    return paths
 
 
 def _read_summary_rows(run_dir: Path, *, limit: int = 5) -> list[dict[str, Any]]:
-    path = run_dir / "evolution_summary.jsonl"
-    if not path.exists():
-        return []
-    rows = [
-        json.loads(line)
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
-    return rows[-limit:]
+    return _read_all_summary_rows(run_dir)[-limit:]
 
 
 def _read_all_summary_rows(run_dir: Path) -> list[dict[str, Any]]:
-    path = run_dir / "evolution_summary.jsonl"
-    if not path.exists():
-        return []
     return [
         json.loads(line)
+        for path in _summary_paths(run_dir)
+        if path.exists()
         for line in path.read_text().splitlines()
         if line.strip()
     ]
 
 
-def _candidate_artifact_dir(run_dir: Path, candidate_name: str) -> Path:
+def _candidate_artifact_dir(run_dir: Path, candidate_name_or_id: str) -> Path:
     try:
-        safe_name = runs_mod.validate_artifact_name(candidate_name, kind="candidate")
-    except ValueError as exc:
+        artifact_root, candidate_id = locate_candidate(run_dir, candidate_name_or_id)
+    except (KeyError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="candidate not found",
         ) from exc
-    candidate_dir = (run_dir / "candidates" / safe_name).resolve()
-    try:
-        candidate_dir.relative_to((run_dir / "candidates").resolve())
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="candidate not found",
-        ) from exc
-    if not candidate_dir.exists():
+    candidate_dir = (artifact_root / "candidates" / candidate_id).resolve()
+    if not candidate_dir.is_dir():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="candidate not found",
@@ -202,57 +236,70 @@ def _candidate_artifact_dir(run_dir: Path, candidate_name: str) -> Path:
     return candidate_dir
 
 
-def _candidate_row(run_dir: Path, candidate_name: str) -> dict[str, Any] | None:
-    return next(
-        (
-            row
-            for row in _read_all_summary_rows(run_dir)
-            if row.get("candidate") == candidate_name
-        ),
-        None,
-    )
-
-
-def _agent_source_path(repo_root: Path, candidate_name: str) -> Path:
-    safe_name = runs_mod.validate_artifact_name(candidate_name, kind="candidate")
-    return repo_root / "agents" / f"{safe_name}.py"
-
-
 def _unified_candidate_diff(
     *,
     repo_root: Path,
     run_dir: Path,
     candidate_name: str,
-) -> dict[str, str]:
-    row = _candidate_row(run_dir, candidate_name) or {}
-    parent = row.get("parent_candidate_name") or "baseline"
-    parent_path = _agent_source_path(repo_root, parent)
-    candidate_path = _agent_source_path(repo_root, candidate_name)
-    if not candidate_path.exists():
+) -> dict[str, Any]:
+    del repo_root
+    try:
+        candidate_root, candidate = load_candidate_artifact_any(
+            run_dir,
+            candidate_name,
+        )
+        if candidate.parent_ids:
+            parent_root, parent = load_candidate_artifact_any(
+                run_dir,
+                candidate.parent_ids[0],
+            )
+        else:
+            parent_root, parent = None, None
+    except (KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="candidate source not found",
-        )
-    parent_text = parent_path.read_text().splitlines(keepends=True) if parent_path.exists() else []
+        ) from exc
+    candidate_path = candidate_root / candidate.source.artifact_path
+    parent_path = (
+        parent_root / parent.source.artifact_path
+        if parent is not None and parent_root is not None
+        else None
+    )
+    candidate_display_path = candidate_path.relative_to(run_dir).as_posix()
+    parent_display_path = (
+        parent_path.relative_to(run_dir).as_posix()
+        if parent_path is not None
+        else "/dev/null"
+    )
+    parent_text = (
+        parent_path.read_text().splitlines(keepends=True)
+        if parent_path is not None
+        else []
+    )
     candidate_text = candidate_path.read_text().splitlines(keepends=True)
     diff = "".join(
         difflib.unified_diff(
             parent_text,
             candidate_text,
-            fromfile=f"agents/{parent}.py",
-            tofile=f"agents/{candidate_name}.py",
+            fromfile=parent_display_path,
+            tofile=candidate_display_path,
         )
     )
     return {
-        "candidate": candidate_name,
-        "parent": str(parent),
-        "from_path": f"agents/{parent}.py",
-        "to_path": f"agents/{candidate_name}.py",
+        "candidate": candidate.name,
+        "candidate_id": candidate.candidate_id,
+        "parent": parent.name if parent is not None else "baseline",
+        "parent_id": parent.candidate_id if parent is not None else None,
+        "from_path": parent_display_path,
+        "to_path": candidate_display_path,
         "diff": diff,
     }
 
 
 def _format_accuracy(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("value")
     try:
         return f"{float(value):.4f}"
     except (TypeError, ValueError):
@@ -306,6 +353,9 @@ def _run_info_from_record(record: RunRecord) -> dict[str, Any]:
         "skill_path": record.skill_path,
         "budget": record.budget,
         "model": record.model,
+        "mode": record.mode,
+        "parent_policy": record.parent_policy,
+        "synthetic": record.synthetic,
         "current_iteration": record.current_iteration,
     }
 
@@ -325,7 +375,10 @@ def _run_info_from_files(run_dir: Path) -> dict[str, Any]:
         "domain": manifest.get("domain", "coding-agent"),
         "skill_path": manifest.get("skill_path"),
         "budget": manifest.get("budget"),
-        "model": manifest.get("model"),
+        "model": manifest.get("proposer_model", manifest.get("model")),
+        "mode": manifest.get("mode", "research"),
+        "parent_policy": manifest.get("parent_policy", "best_accuracy"),
+        "synthetic": manifest.get("synthetic", manifest.get("mock_bench", False)),
         "current_iteration": current_iteration or 0,
         "best_score": _best_score(frontier),
     }
@@ -338,7 +391,7 @@ def _full_run_info(run_dir: Path, record: RunRecord | None = None) -> dict[str, 
         {
             "manifest": _read_manifest(run_dir) or {},
             "frontier_val": frontier,
-            "summary_rows": _read_summary_rows(run_dir, limit=5),
+            "summary_rows": _read_all_summary_rows(run_dir),
             "best_score": _best_score(frontier),
         }
     )
@@ -364,6 +417,8 @@ async def _emit_checkpoint_events(record: RunRecord) -> None:
                 "parent_checkpoint_id": checkpoint.parent_checkpoint_id,
                 "ts": checkpoint.ts,
                 "node": checkpoint.node,
+                "candidate": checkpoint.values_summary.get("best_candidate"),
+                "candidate_id": checkpoint.values_summary.get("best_candidate_id"),
             },
             event_id=checkpoint.checkpoint_id,
         )
@@ -372,18 +427,59 @@ async def _emit_checkpoint_events(record: RunRecord) -> None:
 async def _execute_run(record: RunRecord, initial_state: dict[str, Any]) -> None:
     config = {
         "configurable": {"thread_id": record.thread_id},
-        "recursion_limit": 200,
+        "recursion_limit": 300,
     }
+    if lifecycle_state(
+        record.run_dir,
+        entity_type="run",
+        entity_id=record.run_id,
+    ) is None:
+        for state_name in ("created", "admitted", "running"):
+            transition_lifecycle(
+                record.run_dir,
+                run_id=record.run_id,
+                entity_type="run",
+                entity_id=record.run_id,
+                to_state=state_name,
+                thread_id=record.thread_id,
+            )
     try:
         final = await record.graph.ainvoke(initial_state, config=config)
     except asyncio.CancelledError:
         record.status = "cancelled"
         _write_manifest_status(record.run_dir, status="cancelled")
+        if lifecycle_state(
+            record.run_dir,
+            entity_type="run",
+            entity_id=record.run_id,
+        ) == "running":
+            transition_lifecycle(
+                record.run_dir,
+                run_id=record.run_id,
+                entity_type="run",
+                entity_id=record.run_id,
+                to_state="canceled",
+                thread_id=record.thread_id,
+            )
         raise
     except Exception as exc:  # noqa: BLE001 - surfaced through API + SSE
         record.status = "failed"
         record.error = str(exc)
         _write_manifest_status(record.run_dir, status="failed", error=str(exc))
+        if lifecycle_state(
+            record.run_dir,
+            entity_type="run",
+            entity_id=record.run_id,
+        ) == "running":
+            transition_lifecycle(
+                record.run_dir,
+                run_id=record.run_id,
+                entity_type="run",
+                entity_id=record.run_id,
+                to_state="failed",
+                thread_id=record.thread_id,
+                reason=str(exc),
+            )
         emit_run_event(
             record.run_id,
             "error",
@@ -402,8 +498,23 @@ async def _execute_run(record: RunRecord, initial_state: dict[str, Any]) -> None
         record.run_dir,
         status="completed",
         current_iteration=record.current_iteration,
+        best_candidate=final.get("best_candidate"),
+        best_candidate_id=final.get("best_candidate_id"),
         finished_at=_now(),
     )
+    if lifecycle_state(
+        record.run_dir,
+        entity_type="run",
+        entity_id=record.run_id,
+    ) == "running":
+        transition_lifecycle(
+            record.run_dir,
+            run_id=record.run_id,
+            entity_type="run",
+            entity_id=record.run_id,
+            to_state="succeeded",
+            thread_id=record.thread_id,
+        )
     await _emit_checkpoint_events(record)
 
 
@@ -458,6 +569,13 @@ def get_run_graph(request: Request, run_id: str) -> Any:
         skill_path=skill_path,
         checkpointer=checkpointer,
         memory_store=_app_memory_store(request),
+        mode=manifest.get("mode", "research"),
+        parent_policy=manifest.get("parent_policy", "best_accuracy"),
+        inner_model=(manifest.get("policy") or {}).get("inner_model"),
+        proposer_model=manifest.get("proposer_model", manifest.get("model", "opus")),
+        allow_global_memory=bool(
+            (manifest.get("policy") or {}).get("allow_global_memory", False)
+        ),
     )
     return graph
 
@@ -487,6 +605,11 @@ async def create_run(
     response: Response,
 ) -> dict[str, Any]:
     repo_root = _repo_root(request)
+    if payload.mode == RunMode.RESEARCH.value and payload.global_memory:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="research mode forbids global memory",
+        )
     run_id = payload.run_name if payload.run_name is not None else _generated_run_id()
     try:
         run_dir = runs_mod.make_run_path(repo_root, run_id)
@@ -527,7 +650,14 @@ async def create_run(
         domain=payload.domain,
         skill_path=str(skill_path) if skill_path else payload.skill_path,
         budget=payload.budget,
-        model=payload.model,
+        model=payload.proposer_model or payload.model,
+        proposer_model=payload.proposer_model or payload.model,
+        inner_model=payload.inner_model,
+        mode=payload.mode,
+        parent_policy=payload.parent_policy,
+        global_memory=payload.global_memory,
+        synthetic=mock_bench,
+        persistence_backend=getattr(request.app.state, "persistence_backend", "memory"),
         current_iteration=0,
         mock_proposer=mock_proposer,
         mock_bench=mock_bench,
@@ -546,7 +676,14 @@ async def create_run(
         workers=payload.workers,
         skill_path=skill_path,
         checkpointer=checkpointer,
-        memory_store=_app_memory_store(request),
+        memory_store=(
+            _app_memory_store(request) if payload.global_memory else None
+        ),
+        mode=payload.mode,
+        parent_policy=payload.parent_policy,
+        inner_model=payload.inner_model,
+        proposer_model=payload.proposer_model or payload.model,
+        allow_global_memory=payload.global_memory,
     )
     record = RunRecord(
         run_id=run_id,
@@ -556,7 +693,10 @@ async def create_run(
         domain=payload.domain,
         skill_path=str(skill_path) if skill_path else payload.skill_path,
         budget=payload.budget,
-        model=payload.model,
+        model=payload.proposer_model or payload.model,
+        mode=payload.mode,
+        parent_policy=payload.parent_policy,
+        synthetic=mock_bench,
         current_iteration=0,
         run_dir=run_dir,
         graph=graph,
@@ -569,7 +709,11 @@ async def create_run(
         "candidates": [],
         "frontier": [],
         "best_candidate": None,
+        "best_candidate_id": None,
+        "active_candidate_ids": [],
         "proposer_prior": "",
+        "mode": payload.mode,
+        "parent_policy": payload.parent_policy,
     }
     record.task = asyncio.create_task(
         _execute_run(record, initial_state),
@@ -599,6 +743,8 @@ async def list_runs(request: Request) -> dict[str, Any]:
                     "started_at": info["started_at"],
                     "current_iteration": info["current_iteration"],
                     "best_score": info.get("best_score"),
+                    "mode": info.get("mode", "research"),
+                    "synthetic": info.get("synthetic", False),
                 }
             )
     return {"runs": runs}
@@ -615,7 +761,7 @@ async def get_candidate_diff(
     run_id: str,
     candidate_name: str,
     request: Request,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     run_dir = get_run_dir(request, run_id)
     _candidate_artifact_dir(run_dir, candidate_name)
     return _unified_candidate_diff(
@@ -639,6 +785,69 @@ async def get_candidate_test_output(
     }
 
 
+@router.get("/runs/{run_id}/candidates/{candidate_name}/manifest")
+async def get_candidate_manifest(
+    run_id: str,
+    candidate_name: str,
+    request: Request,
+) -> dict[str, Any]:
+    run_dir = get_run_dir(request, run_id)
+    try:
+        _artifact_root, artifact = load_candidate_artifact_any(
+            run_dir,
+            candidate_name,
+        )
+    except (KeyError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="candidate not found",
+        ) from exc
+    return artifact.model_dump(mode="json")
+
+
+@router.get("/runs/{run_id}/report")
+async def get_research_report(run_id: str, request: Request) -> dict[str, Any]:
+    return build_run_report(get_run_dir(request, run_id))
+
+
+@router.get("/runs/{run_id}/events")
+async def get_evidence_events(run_id: str, request: Request) -> dict[str, Any]:
+    run_dir = get_run_dir(request, run_id)
+    return {
+        "events": [event.model_dump(mode="json") for event in read_events(run_dir)]
+    }
+
+
+@router.post("/runs/{run_id}/finalize")
+async def finalize_research_run(
+    run_id: str,
+    payload: FinalizeRunRequest,
+    request: Request,
+) -> dict[str, Any]:
+    run_dir = get_run_dir(request, run_id)
+    record = run_registry.get(run_id)
+    if record is not None and record.task is not None and not record.task.done():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="run must complete before finalization",
+        )
+    try:
+        return await finalize_run(
+            run_dir=run_dir,
+            repo_root=_repo_root(request),
+            holdout_tasks_dir=_repo_root(request) / "eval" / "holdout",
+            candidate_ids=payload.candidate_ids,
+            trials=payload.trials,
+            workers=payload.workers,
+            checkpointer=_app_checkpointer(request),
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+
 @router.delete("/runs/{run_id}")
 async def delete_run(run_id: str, request: Request) -> dict[str, str]:
     run_dir = get_run_dir(request, run_id)
@@ -651,7 +860,8 @@ async def delete_run(run_id: str, request: Request) -> dict[str, str]:
             pass
     if record:
         record.status = "cancelled"
-    for branch in list_branches(run_id=run_id):
-        await cancel_branch(branch.thread_id)
+    for branch in list_branches(run_id=run_id, run_dir=run_dir):
+        if branch.status in {"created", "running"}:
+            await cancel_branch(branch.thread_id)
     _write_manifest_status(run_dir, status="cancelled")
     return {"status": "cancelled"}

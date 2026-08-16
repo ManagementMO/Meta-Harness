@@ -2,7 +2,7 @@
 
 No overrides. Uses ``CodingAgentHarness`` defaults verbatim. Tested by
 the inner-loop pipeline; never modified by the proposer (proposer only
-writes new files under ``runs/{run_id}/agents/``).
+writes run-scoped proposals that are copied into immutable candidate bundles).
 """
 
 from app.meta_harness.harness import CodingAgentHarness

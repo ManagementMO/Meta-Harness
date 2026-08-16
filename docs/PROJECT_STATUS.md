@@ -1,8 +1,9 @@
 # Project Status — Meta-Harness
 
-> Last updated: 2026-04-26
+> Historical snapshot: 2026-04-26
+> Current implementation update: 2026-08-16
 
-Meta-Harness is a LangGraph-native substrate for self-improving coding agent harnesses, implementing the Stanford Meta-Harness paradigm. This document tracks what has been accomplished and what remains.
+Meta-Harness is a LangGraph-native research substrate for evolving coding-agent harnesses. Current source supersedes the historical step counts below and implements immutable candidate IDs/manifests, baseline and population evaluation, truthful measured/unknown/synthetic metrics, shared search/holdout evaluation, runtime adapters, append-only evidence, scoped memory, reversible refinements, durable branch projections, research/autonomous modes, and provenance surfaces. It is still a trusted-local research/demo system, not a validated self-improving or security-isolated platform. Use `META_HARNESS_DEEP_RESEARCH_BRIEF.md` and current tests as the status authority.
 
 ---
 

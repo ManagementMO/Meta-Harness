@@ -15,7 +15,7 @@ export type LogTag =
   | "fork"
   | "memory";
 
-export type ContextTab = "chart" | "diff" | "test" | "memory";
+export type ContextTab = "chart" | "diff" | "test" | "evidence" | "memory";
 
 export type LogFilter = "all" | "tools" | "verify" | "scores" | "forks";
 
@@ -31,11 +31,15 @@ export type OuterPhaseFlags = {
 export type Scores = {
   accuracy: number;
   per_task?: Record<string, { pass_rate: number; trials: boolean[] }>;
+  synthetic?: boolean;
+  tokenMeasurementStatus?: "measured" | "unknown" | "synthetic" | "not_applicable";
 };
 
 export type TreeNode = {
   candidate: string;
+  candidateId?: string;
   parent_candidate_name: string | null;
+  parentIds?: string[];
   iteration: number;
   checkpointId?: string;
   status: CandidateStatus;
@@ -87,6 +91,10 @@ export type RunSummary = {
   status: string;
   iteration: number;
   isMock?: boolean;
+  isSynthetic?: boolean;
+  mode?: "research" | "autonomous";
+  persistence?: "postgres" | "memory";
+  securityProfile?: string;
 };
 
 export type MemoryEntry = {
@@ -141,7 +149,9 @@ export type DashboardAction =
       type: "APPLY_FRONTIER_UPDATE";
       payload: {
         frontier: string[];
+        frontierIds?: string[];
         bestCandidate: string | null;
+        bestCandidateId?: string | null;
         delta: number | null;
       };
     }

@@ -10,6 +10,10 @@ const TASK_ESSENCE: Record<string, string> = {
   'implement-spec': 'Translates product requirements into correct code changes.',
 };
 
+function nodeKey(node: { candidate: string; candidateId?: string }): string {
+  return node.candidateId ?? node.candidate;
+}
+
 function taskSlug(taskKey: string): string {
   return taskKey.replace(/^task-\d+-/, '').replace(/^task-/, '');
 }
@@ -41,7 +45,11 @@ export function ScoreChart() {
     () => [...mainNodes, ...forkNodes, ...rejectedNodes],
     [mainNodes, forkNodes, rejectedNodes],
   );
-  const focusNode = (selectedNode ? tree.find(n => n.candidate === selectedNode) : null) ?? bestNode;
+  const focusNode = (
+    selectedNode
+      ? tree.find(node => (node.candidateId ?? node.candidate) === selectedNode || node.candidate === selectedNode)
+      : null
+  ) ?? bestNode;
   const tasks = focusNode?.scores.per_task
     ? Object.entries(focusNode.scores.per_task)
         .map(([key, val]) => ({
@@ -74,7 +82,10 @@ export function ScoreChart() {
   const toPath = (nodes: typeof mainNodes) =>
     nodes.map((n, i) => `${i === 0 ? 'M' : 'L'} ${x(n.iteration)} ${y(n.scores.accuracy)}`).join(' ');
 
-  const forkParent = mainNodes.find(n => n.candidate === forkNodes[0]?.parent_candidate_name);
+  const forkParent = mainNodes.find(node =>
+    (forkNodes[0]?.parentIds?.[0] && nodeKey(node) === forkNodes[0].parentIds[0]) ||
+    node.candidate === forkNodes[0]?.parent_candidate_name
+  );
   const forkPath = forkParent
     ? `M ${x(forkParent.iteration)} ${y(forkParent.scores.accuracy)} ` + forkNodes.map(n => `L ${x(n.iteration)} ${y(n.scores.accuracy)}`).join(' ')
     : '';
@@ -104,7 +115,7 @@ export function ScoreChart() {
     }
   }
 
-  const hoveredNode = hovered ? plottedNodes.find(n => n.candidate === hovered) : null;
+  const hoveredNode = hovered ? plottedNodes.find(node => nodeKey(node) === hovered) : null;
   const latestNode = plottedNodes.length > 0
     ? [...plottedNodes].sort((a, b) => b.iteration - a.iteration)[0]
     : null;
@@ -234,13 +245,13 @@ export function ScoreChart() {
       {mainNodes.length > 1 && <path d={toPath(mainNodes)} fill="none" stroke="#6a9e78" strokeWidth={1.5} />}
       {mainNodes.map(n => (
         <circle
-          key={n.candidate}
+          key={nodeKey(n)}
           cx={x(n.iteration)}
           cy={y(n.scores.accuracy)}
           r={3.5}
           fill="#6a9e78"
           style={{ cursor: 'pointer' }}
-          onMouseEnter={() => setHovered(n.candidate)}
+          onMouseEnter={() => setHovered(nodeKey(n))}
           onMouseLeave={() => setHovered(null)}
         />
       ))}
@@ -248,26 +259,26 @@ export function ScoreChart() {
       {forkPath && <path d={forkPath} fill="none" stroke="#8878a8" strokeWidth={1.5} />}
       {forkNodes.map(n => (
         <circle
-          key={n.candidate}
+          key={nodeKey(n)}
           cx={x(n.iteration)}
           cy={y(n.scores.accuracy)}
           r={3.5}
           fill="#8878a8"
           style={{ cursor: 'pointer' }}
-          onMouseEnter={() => setHovered(n.candidate)}
+          onMouseEnter={() => setHovered(nodeKey(n))}
           onMouseLeave={() => setHovered(null)}
         />
       ))}
 
       {rejectedNodes.map(n => (
         <circle
-          key={n.candidate}
+          key={nodeKey(n)}
           cx={x(n.iteration)}
           cy={y(n.scores.accuracy)}
           r={3.5}
           fill="#b06068"
           style={{ cursor: 'pointer' }}
-          onMouseEnter={() => setHovered(n.candidate)}
+          onMouseEnter={() => setHovered(nodeKey(n))}
           onMouseLeave={() => setHovered(null)}
         />
       ))}
@@ -281,7 +292,7 @@ export function ScoreChart() {
             r={4.5}
             fill="#7ab8ad"
             style={{ cursor: 'pointer' }}
-            onMouseEnter={() => setHovered(bestNode.candidate)}
+            onMouseEnter={() => setHovered(nodeKey(bestNode))}
             onMouseLeave={() => setHovered(null)}
           />
         </>

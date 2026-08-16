@@ -13,6 +13,11 @@ Postgres-backed checkpointing, time-travel forking, and cross-run memory.
 A creative reinterpretation of the work at
 [yoonholee.com/meta-harness](https://yoonholee.com/meta-harness/).
 
+> **Current status:** research/demo substrate, not a validated self-improving or
+> security-isolated platform. Read
+> [`docs/META_HARNESS_DEEP_RESEARCH_BRIEF.md`](docs/META_HARNESS_DEEP_RESEARCH_BRIEF.md)
+> before interpreting benchmark, mock, branch, memory, or sandbox claims.
+
 ---
 
 ## The insight
@@ -29,9 +34,9 @@ fall out **by construction**:
 
 | Property | Mechanism |
 |---|---|
-| **Secure** | Each candidate is a sandboxed subgraph — a buggy candidate cannot corrupt the run |
-| **Consistent** | Every state transition is checkpointed via `AsyncPostgresSaver`; replays are deterministic |
-| **Reversible** | Time-travel via `get_state_history` + `update_state` + `ainvoke(None, ckpt_id)` |
+| **Research-traceable** | Candidate source is copied, hashed, manifested, and evaluated by ID; task commands use a copied workspace with process limits |
+| **Consistent** | Outer and inner transitions can share `AsyncPostgresSaver`; every evaluation also writes immutable evidence artifacts and append-only events |
+| **Reversible** | Time-travel branches plus versioned refinement apply/rollback records preserve causal history |
 
 The substrate IS the contribution.
 
@@ -48,8 +53,8 @@ The substrate IS the contribution.
       ▼                          ▼
    spawns `claude` CLI        spawns inner
    subprocess + SKILL.md      subgraph per
-   (proposer writes a         candidate
-   new agents/<name>.py)
+   (writes a run-scoped       candidate ID
+   proposal → immutable bundle)
                                   │
                                   ▼
    INNER STATE MACHINE  (5 nodes, sandboxed subgraph per candidate)
@@ -77,8 +82,11 @@ The substrate IS the contribution.
 
 ## The demo arc
 
+The following is an illustrative synthetic fixture for the dashboard, not a
+measured research result.
+
 ```text
-Baseline harness, 5 coding-agent tasks × 5 trials each, on Haiku 4.5:
+Synthetic baseline fixture, 5 coding-agent tasks × 5 trials each:
 
 Iter 1:   retry on schema_drift errors          →  0.70  (+0.08)  ✓
 Iter 2:   stricter tool-description hashing     →  0.66  (-0.04)  ✗
@@ -136,26 +144,23 @@ uv run meta-harness resume <run-name>
 
 ## Build status
 
-The implementation is tracked as a topological sequence of 13 verified
-steps in `docs/BUILD_ORDER.md`, each with a literal **definition-of-done**
-command that proves it works. Backend tests currently pass with the live
-LLM test skipped when `ANTHROPIC_API_KEY` is unavailable.
+The historical 13-step build is preserved in `docs/BUILD_ORDER.md`. Current
+source additionally implements immutable candidate bundles, baseline and
+population evaluation, truthful measurement status, isolated holdout
+finalization, evidence ledgers, scoped memory, reversible refinements, durable
+branch projections, runtime adapters, research/autonomous modes, and
+provenance APIs/UI.
 
-| Step | Goal | Status |
-|---|---|---|
-| 1 | Repo skeleton + Postgres + first eval task | ✓ |
-| 2 | Sandbox + 6 fixed inner-loop tools | ✓ |
-| 3 | Inner StateGraph end-to-end on one task (live LLM) | ✓ |
-| 4 | 5 eval tasks + multi-trial benchmark | ✓ |
-| 5 | Outer StateGraph + mock proposer + Pareto frontier | ✓ |
-| 6 | Real proposer (`claude` CLI subprocess) + SKILL.md | ✓ |
-| 7 | AsyncPostgresSaver + full async refactor | ✓ |
-| 8 | Cross-run memory (PostgresStore) | next |
-| 9 | Time-travel + concurrent branches | next |
-| 10 | FastAPI REST + SSE with closed-set event registry | next |
-| 11 | Frontend dashboard (Next.js + ReactFlow + D3 + Monaco) | next |
-| 12 | CLI completeness + holdout evaluation | next |
-| 13 | End-to-end demo dry-run (formal acceptance) | final |
+| Gate | Status |
+|---|---|
+| Deterministic backend contracts | implemented; verify with pytest |
+| Frontend lint/build | implemented |
+| Synthetic mock loop | implemented and visibly labeled synthetic |
+| Postgres checkpoint/memory paths | implemented; requires running Postgres for verification |
+| Live inner/provider benchmark | requires credentials and explicit execution |
+| Strong security isolation | not implemented; trusted-local profile only |
+| Recursive/RLM backend | interface only; no backend registered |
+| Generalization study | not run; task/model distribution remains too small |
 
 Run `cd backend && uv run pytest tests/ -q` at any commit to confirm the
 test floor.
@@ -164,9 +169,9 @@ test floor.
 
 ## What's distinctive about this implementation
 
-1. **Two LangGraph state machines, not one.** The outer machine evolves
-   the inner machine's source code. Both are checkpointed; both will
-   support time-travel.
+1. **Two LangGraph state machines, not one.** The outer machine evaluates
+   immutable inner-harness bundles. With Postgres enabled, outer and inner
+   transitions use distinct thread IDs in the same checkpoint store.
 2. **The "meta-harness tool" is a SKILL.md, not a framework feature.**
    ~150 lines of Markdown injected via `--append-system-prompt` when
    the proposer's `claude` subprocess is spawned. Anti-overfitting and
@@ -181,12 +186,12 @@ test floor.
    diff fails to apply, the tool surfaces the file's actual current
    content at the failed range so the model fixes the patch without
    re-reading the file.
-5. **Forks are concurrent, not sequential.** Per Appendix A,
-   `asyncio.create_task` over `graph.ainvoke` calls share a single
-   `AsyncPostgresSaver`; both branches grow on the dashboard at once.
-6. **Cross-run memory persists across runs.** A pattern learned in
-   run A flows into run B's proposer system prompt, so each new run
-   starts smarter than cold.
+5. **Forks are concurrent, isolated, and durably projected.** Branches share
+   the checkpointer but write candidate, frontier, trace, and metadata artifacts
+   into separate execution directories.
+6. **Memory has explicit scope.** Research mode disables global-memory
+   injection. Autonomous mode can opt into versioned evidence-ranked patterns,
+   with refinement apply/rollback kept separate from benchmark selection.
 
 ---
 

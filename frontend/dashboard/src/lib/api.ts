@@ -20,6 +20,8 @@ export type RunListItem = {
   status: string;
   best_score: number | null;
   iteration: number;
+  mode?: "research" | "autonomous";
+  synthetic?: boolean;
 };
 
 export type CreateRunRequest = {
@@ -30,6 +32,11 @@ export type CreateRunRequest = {
   fresh?: boolean;
   trials?: number;
   workers?: number;
+  mode?: "research" | "autonomous";
+  parent_policy?: "best_accuracy" | "pareto_sample";
+  inner_model?: string;
+  proposer_model?: string;
+  global_memory?: boolean;
 };
 
 export type CreateRunResponse = {
@@ -81,19 +88,28 @@ type RunDetail = {
   iteration?: number;
   summary_rows?: EvolutionRow[];
   frontier_val?: FrontierVal | null;
+  mode?: "research" | "autonomous";
+  synthetic?: boolean;
   manifest?: {
     mock_proposer?: boolean;
     mock_bench?: boolean;
+    synthetic?: boolean;
+    mode?: "research" | "autonomous";
+    persistence_backend?: "postgres" | "memory";
+    security_profile?: string;
   };
 };
 
 type EvolutionRow = {
   candidate?: string;
   candidate_name?: string;
+  candidate_id?: string;
   parent_candidate_name?: string | null;
+  parent_ids?: string[];
   iteration?: number;
-  status?: CandidateStatus;
-  scores?: Scores;
+  status?: string;
+  scores?: unknown;
+  synthetic?: boolean;
   hypothesis?: string;
   axis?: "exploration" | "exploitation";
   delta?: number | null;
@@ -105,12 +121,45 @@ type EvolutionRow = {
 type FrontierVal = {
   _best?: {
     name?: string;
+    candidate_id?: string;
   };
   _pareto_names?: string[];
+  _pareto_ids?: string[];
 };
 
 function asRunDetail(value: unknown): RunDetail {
   return value && typeof value === "object" ? (value as RunDetail) : {};
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function metricNumber(value: unknown): number {
+  if (typeof value === "number") return value;
+  const metric = asRecord(value);
+  return typeof metric.value === "number" ? metric.value : 0;
+}
+
+function normalizeCandidateStatus(value: unknown): CandidateStatus {
+  if (value === "best" || value === "rejected" || value === "fork") return value;
+  if (value === "accepted" || value === "frontier") return "accepted";
+  return "seed";
+}
+
+function normalizeScores(value: unknown, synthetic = false): Scores {
+  const scores = asRecord(value);
+  const tokens = asRecord(scores.tokens);
+  const perTask = scores.per_task;
+  return {
+    accuracy: metricNumber(scores.accuracy_value ?? scores.accuracy),
+    per_task: perTask && typeof perTask === "object" ? (perTask as Scores["per_task"]) : undefined,
+    synthetic: Boolean(scores.synthetic ?? synthetic),
+    tokenMeasurementStatus:
+      typeof tokens.measurement_status === "string"
+        ? (tokens.measurement_status as Scores["tokenMeasurementStatus"])
+        : undefined,
+  };
 }
 
 export async function getRunDetail(runId: string): Promise<RunDetail> {
@@ -128,6 +177,10 @@ export function toRunInfo(value: RunDetail): RunSummary {
     status: detail.status ?? "unknown",
     iteration: detail.current_iteration ?? detail.iteration ?? 0,
     isMock: Boolean(detail.manifest?.mock_proposer || detail.manifest?.mock_bench),
+    isSynthetic: Boolean(detail.synthetic ?? detail.manifest?.synthetic ?? detail.manifest?.mock_bench),
+    mode: detail.mode ?? detail.manifest?.mode ?? "research",
+    persistence: detail.manifest?.persistence_backend,
+    securityProfile: detail.manifest?.security_profile ?? "trusted-local-process-isolation",
   };
 }
 
@@ -136,10 +189,12 @@ export function toTreeNodes(rows: EvolutionRow[]): TreeNode[] {
     const candidate = r.candidate ?? r.candidate_name ?? "";
     return {
       candidate,
+      candidateId: r.candidate_id,
       parent_candidate_name: r.parent_candidate_name ?? null,
+      parentIds: r.parent_ids,
       iteration: r.iteration ?? 0,
-      status: r.status ?? "seed",
-      scores: r.scores ?? { accuracy: 0 },
+      status: normalizeCandidateStatus(r.status),
+      scores: normalizeScores(r.scores, r.synthetic),
       hypothesis: r.hypothesis,
       axis: r.axis,
       delta: r.delta ?? null,
@@ -152,17 +207,24 @@ export function toTreeNodes(rows: EvolutionRow[]): TreeNode[] {
 
 export function toTreeNodesFromRunDetail(detail: RunDetail): TreeNode[] {
   const nodes = toTreeNodes(detail.summary_rows ?? []);
-  const best = detail.frontier_val?._best?.name;
-  const frontier = new Set(detail.frontier_val?._pareto_names ?? []);
-  return nodes.map((node) => ({
-    ...node,
-    status:
-      best && node.candidate === best
-        ? "best"
-        : frontier.has(node.candidate)
-          ? "accepted"
-          : node.status,
-  }));
+  const best = detail.frontier_val?._best?.candidate_id ?? detail.frontier_val?._best?.name;
+  const frontier = new Set(
+    detail.frontier_val?._pareto_ids?.length
+      ? detail.frontier_val._pareto_ids
+      : detail.frontier_val?._pareto_names ?? [],
+  );
+  return nodes.map((node) => {
+    const key = node.candidateId ?? node.candidate;
+    return {
+      ...node,
+      status:
+        best && key === best
+          ? "best"
+          : frontier.has(key)
+            ? "accepted"
+            : node.status,
+    };
+  });
 }
 
 // ── Checkpoints ──
@@ -179,6 +241,7 @@ type CheckpointRow = {
   iteration?: number;
   values_summary?: {
     best_candidate?: string;
+    best_candidate_id?: string;
     iteration?: number;
   };
 };
@@ -190,7 +253,7 @@ export async function fetchCheckpointCandidateMap(runId: string): Promise<Map<st
   if (!Array.isArray(rows)) return map;
   for (const item of rows.toReversed()) {
     const row = item as CheckpointRow;
-    const candidate = row.values_summary?.best_candidate;
+    const candidate = row.values_summary?.best_candidate_id ?? row.values_summary?.best_candidate;
     if (row.checkpoint_id && candidate) map.set(candidate, row.checkpoint_id);
   }
   return map;
@@ -198,7 +261,7 @@ export async function fetchCheckpointCandidateMap(runId: string): Promise<Map<st
 
 export async function resolveCheckpointForNode(
   runId: string,
-  node: { candidate: string; iteration: number; threadId?: string },
+  node: { candidate: string; candidateId?: string; iteration: number; threadId?: string },
 ): Promise<string | null> {
   let raw: unknown;
   try {
@@ -227,7 +290,9 @@ export async function resolveCheckpointForNode(
 
   // Fallback for older payloads that only expose best candidate summaries.
   const byCandidate = typed.toReversed().find(
-    (row) => row.values_summary?.best_candidate === node.candidate,
+    (row) =>
+      (node.candidateId && row.values_summary?.best_candidate_id === node.candidateId) ||
+      row.values_summary?.best_candidate === node.candidate,
   );
   if (byCandidate?.checkpoint_id) return byCandidate.checkpoint_id;
 
@@ -313,6 +378,41 @@ export async function getTestOutput(runId: string, candidate: string): Promise<s
   if (!res.ok) return null;
   const data = await res.json();
   return typeof data.output === "string" && data.output.length > 0 ? data.output : null;
+}
+
+export async function getCandidateManifest(
+  runId: string,
+  candidate: string,
+): Promise<Record<string, unknown> | null> {
+  const res = await fetch(
+    `${BASE_URL}/runs/${encodeURIComponent(runId)}/candidates/${encodeURIComponent(candidate)}/manifest`,
+  );
+  return res.ok ? ((await res.json()) as Record<string, unknown>) : null;
+}
+
+export async function getRunReport(runId: string): Promise<Record<string, unknown> | null> {
+  const res = await fetch(`${BASE_URL}/runs/${encodeURIComponent(runId)}/report`);
+  return res.ok ? ((await res.json()) as Record<string, unknown>) : null;
+}
+
+export async function getEvidenceEvents(runId: string): Promise<unknown[]> {
+  const res = await fetch(`${BASE_URL}/runs/${encodeURIComponent(runId)}/events`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data.events) ? data.events : [];
+}
+
+export async function finalizeRun(
+  runId: string,
+  candidateIds?: string[],
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${BASE_URL}/runs/${encodeURIComponent(runId)}/finalize`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidate_ids: candidateIds }),
+  });
+  if (!res.ok) throw new Error(`finalization failed (${res.status})`);
+  return (await res.json()) as Record<string, unknown>;
 }
 
 export const API_BASE_URL = BASE_URL;

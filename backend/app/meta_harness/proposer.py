@@ -3,10 +3,9 @@
 Two paths:
 - ``mock`` mode (BUILD_ORDER step 5): generates a deterministic stub
   candidate file for fast outer-loop testing, no LLM calls.
-- ``claude`` mode (BUILD_ORDER step 6): spawns the ``claude`` CLI
-  subprocess with the SKILL.md ``--append-system-prompt``'d, parses
-  stream-json, parses the resulting agents/<name>.py + pending_eval.json.
-  Mirrors Stanford's reference ``claude_wrapper.py`` shape.
+- ``claude`` mode: spawns the ``claude`` CLI with the SKILL.md appended,
+  parses stream-json, and reads a run-scoped proposal plus pending_eval.json.
+  The outer loop materializes proposal bytes into immutable candidate bundles.
 
 This module is the body of the outer state machine's ``propose`` node
 (per Correction 1 — the proposer is graph-internal, not a separate
@@ -33,10 +32,10 @@ benchmarking interprets as a pre-determined accuracy bump. Real
 benchmark runs would actually exercise the override.
 """
 
-from agents.baseline import BaselineHarness
+from app.meta_harness.harness import CodingAgentHarness
 
 
-class MockHarness_iter_{iteration}(BaselineHarness):
+class MockHarness_iter_{iteration}(CodingAgentHarness):
     """Mock candidate. Hypothesis: {hypothesis}"""
 
     HYPOTHESIS = {hypothesis_repr}
@@ -51,9 +50,7 @@ def mock_propose(
     parent_name: str | None,
     repo_root: Path,
 ) -> dict[str, Any]:
-    """Generate a mock candidate. Writes the harness file under
-    ``agents/_mock_iter_{N}.py`` and ``pending_eval.json`` under the run
-    directory. Returns the pending_eval payload."""
+    """Generate a deterministic run-scoped candidate proposal."""
     name = f"_mock_iter_{iteration}"
     hypothesis = f"mock hypothesis #{iteration}: pretend we tweaked something"
     expected_delta = 0.05
@@ -65,17 +62,23 @@ def mock_propose(
         expected_delta=expected_delta,
     )
 
-    agents_dir = repo_root / "agents"
-    agents_dir.mkdir(exist_ok=True)
-    harness_path = agents_dir / f"{name}.py"
+    proposal_dir = run_dir / "proposals" / f"iter-{iteration}"
+    proposal_dir.mkdir(parents=True, exist_ok=True)
+    harness_path = proposal_dir / f"{name}.py"
     harness_path.write_text(harness_src)
+    try:
+        source_path = harness_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        source_path = str(harness_path.resolve())
 
     payload: dict[str, Any] = {
         "iteration": iteration,
         "candidates": [
             {
                 "name": name,
-                "import_path": f"agents.{name}:MockHarness_iter_{iteration}",
+                "source_path": source_path,
+                "class_name": f"MockHarness_iter_{iteration}",
+                "import_path": None,
                 "parent": parent_name,
                 "hypothesis": hypothesis,
                 "axis": "exploitation",
@@ -94,8 +97,12 @@ def mock_propose(
                 "iteration": iteration,
                 "exit_code": 0,
                 "duration_seconds": 0.0,
-                "cost_usd": 0.0,
-                "files_written": {f"agents/{name}.py": {"lines_written": harness_src.count("\\n")}},
+                "cost_usd": None,
+                "cost_measurement_status": "not_applicable",
+                "synthetic": True,
+                "files_written": {
+                    source_path: {"lines_written": harness_src.count("\\n")}
+                },
             },
             indent=2,
         )
@@ -112,27 +119,33 @@ _PROPOSER_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write", "Bash"]
 
 
 def _render_proposer_prompt(
-    iteration: int, run_dir: Path, repo_root: Path, parent_name: str | None
+    iteration: int,
+    run_dir: Path,
+    repo_root: Path,
+    parent_name: str | None,
+    parent_source_path: str | None = None,
 ) -> str:
     """Render the user-message prompt for the proposer subprocess."""
     rel_run = run_dir.resolve().relative_to(repo_root.resolve())
     parent_line = (
-        f"Parent candidate: `agents/{parent_name}.py`. Read it, then evolve from it."
-        if parent_name
-        else "No parent yet — this is iteration 1. Read `agents/baseline.py` and evolve from it."
+        f"Parent candidate: `{parent_source_path}`. Read it, then evolve from it."
+        if parent_name and parent_source_path
+        else "No evaluated parent source was provided. Read `agents/baseline.py`."
     )
+    proposal_dir = f"{rel_run}/proposals/iter-{iteration}"
     return (
         f"Run iteration {iteration} of the meta-harness coding-agent evolution loop.\n\n"
         f"## Run directory\n"
         f"All logs/results for this run are under `{rel_run}/`.\n"
         f"- `{rel_run}/evolution_summary.jsonl` — past candidates and scores.\n"
         f"- `{rel_run}/frontier_val.json` — current Pareto frontier.\n"
-        f"- `{rel_run}/candidates/<name>/traces/` — per-trial inner-loop traces.\n"
+        f"- `{rel_run}/candidates/<candidate-id>/traces/` — per-trial traces.\n"
         f"- Write `pending_eval.json` to: `{rel_run}/pending_eval.json`.\n\n"
         f"## Existing candidates\n"
-        f"`agents/baseline.py` is the immutable starting point. {parent_line}\n"
-        f"Your new candidate goes in `agents/<descriptive-snake-case-name>.py` and must\n"
-        f"subclass `CodingAgentHarness` from `app.meta_harness.harness`.\n\n"
+        f"`agents/baseline.py` is the checked-in seed. {parent_line}\n"
+        f"Write the new source to `{proposal_dir}/<descriptive-name>.py`.\n"
+        f"Register its repo-relative `source_path` and `class_name` in pending_eval.json.\n"
+        f"It must subclass `CodingAgentHarness` from `app.meta_harness.harness`.\n\n"
         f"Follow the meta-harness-coding-agent skill workflow exactly. Produce ONE\n"
         f"candidate. Self-critique before writing."
     )
@@ -189,6 +202,8 @@ def claude_propose(
     repo_root: Path,
     skill_path: Path,
     proposer_prior: str = "",
+    parent_source_path: str | None = None,
+    research_mode: bool = True,
     timeout_seconds: int = 2400,
     model: str = "opus",
 ) -> dict[str, Any]:
@@ -197,8 +212,8 @@ def claude_propose(
     session.json/transcript.txt/system_prompt.txt/events.jsonl. Read
     pending_eval.json that the proposer wrote. Return the parsed payload.
 
-    Mirrors Stanford's reference ``claude_wrapper.run`` shape; uses
-    subscription auth by stripping ``ANTHROPIC_API_KEY`` before exec.
+    Mirrors Stanford's reference ``claude_wrapper.run`` shape. The child
+    inherits the configured Claude authentication environment explicitly.
     """
     sess_dir = run_dir / "proposer-sessions" / f"iter-{iteration}"
     sess_dir.mkdir(parents=True, exist_ok=True)
@@ -213,7 +228,13 @@ def claude_propose(
     )
 
     # 2) Build the user-message prompt.
-    prompt = _render_proposer_prompt(iteration, run_dir, repo_root, parent_name)
+    prompt = _render_proposer_prompt(
+        iteration,
+        run_dir,
+        repo_root,
+        parent_name,
+        parent_source_path,
+    )
 
     # 3) Empty plugin dir for hermeticity.
     empty_plugin_dir = run_dir / ".empty_plugins"
@@ -242,8 +263,13 @@ def claude_propose(
     tool_call_map: dict[str, dict[str, Any]] = {}
     files_read: dict[str, dict[str, int]] = {}
     files_written: dict[str, dict[str, int]] = {}
-    token_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
-    cost_usd = 0.0
+    token_usage: dict[str, int] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_tokens": 0,
+    }
+    token_usage_available = False
+    cost_usd: float | None = None
     session_id = ""
     exit_code = 0
 
@@ -294,9 +320,15 @@ def claude_propose(
                         files_read,
                         files_written,
                     )
+                    if event.get("type") == "assistant" and (
+                        event.get("message", {}).get("usage") is not None
+                    ):
+                        token_usage_available = True
                     if event.get("type") == "result":
                         session_id = event.get("session_id", session_id)
-                        cost_usd = float(event.get("total_cost_usd", cost_usd) or 0.0)
+                        raw_cost = event.get("total_cost_usd")
+                        if raw_cost is not None:
+                            cost_usd = float(raw_cost)
                 except (json.JSONDecodeError, ValueError):
                     pass
             else:
@@ -325,8 +357,14 @@ def claude_propose(
                 "session_id": session_id,
                 "exit_code": exit_code,
                 "duration_seconds": round(duration, 2),
-                "cost_usd": round(cost_usd, 4),
-                "token_usage": token_usage,
+                "cost_usd": round(cost_usd, 4) if cost_usd is not None else None,
+                "cost_measurement_status": (
+                    "measured" if cost_usd is not None else "unknown"
+                ),
+                "token_usage": token_usage if token_usage_available else None,
+                "token_usage_measurement_status": (
+                    "measured" if token_usage_available else "unknown"
+                ),
                 "command": cmd[:8] + ["...", "--append-system-prompt", "<skill>"],
                 "cwd": str(repo_root),
                 "skill": [
@@ -344,6 +382,16 @@ def claude_propose(
             default=str,
         )
     )
+
+    policy_violations = _research_policy_violations(tool_calls)
+    if research_mode and policy_violations:
+        (sess_dir / "policy-violations.json").write_text(
+            json.dumps({"violations": policy_violations}, indent=2)
+        )
+        raise RuntimeError(
+            "proposer violated research task visibility policy; "
+            f"see {sess_dir}/policy-violations.json"
+        )
 
     if exit_code != 0:
         reason = " ".join(text_parts).strip() or "".join(stderr_lines).strip()
@@ -379,6 +427,9 @@ def _accumulate_event(
         usage = msg.get("usage", {}) or {}
         token_usage["input_tokens"] += int(usage.get("input_tokens", 0) or 0)
         token_usage["output_tokens"] += int(usage.get("output_tokens", 0) or 0)
+        token_usage["cached_tokens"] += int(
+            usage.get("cache_read_input_tokens", 0) or 0
+        ) + int(usage.get("cache_creation_input_tokens", 0) or 0)
         for block in msg.get("content", []) or []:
             if not isinstance(block, dict):
                 continue
@@ -421,6 +472,22 @@ def _track_file_op(
     elif name in {"Write", "Edit", "write_file", "apply_patch"}:
         e = files_written.setdefault(path, {"writes": 0})
         e["writes"] += 1
+
+
+def _research_policy_violations(
+    tool_calls: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    violations: list[dict[str, str]] = []
+    for call in tool_calls:
+        serialized = json.dumps(call.get("input", {}), sort_keys=True).lower()
+        if "eval/holdout" in serialized or "holdout-result" in serialized:
+            violations.append(
+                {
+                    "tool": str(call.get("name", "unknown")),
+                    "reason": "holdout path or result access",
+                }
+            )
+    return violations
 
 
 def _brief_tool_arg(inp: dict[str, Any]) -> str:

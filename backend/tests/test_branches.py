@@ -22,9 +22,11 @@ from app.meta_harness.branches import (  # noqa: E402
     get_checkpoint_state,
     get_state_history,
     list_branches,
+    load_durable_branches,
     reconstruct_trajectory,
     worktree_add,
 )
+from app.meta_harness.ledger import lifecycle_state  # noqa: E402
 from app.meta_harness.persistence import healthcheck, persistence_layer  # noqa: E402
 
 
@@ -171,6 +173,34 @@ async def test_worktree_add_creates_branch_and_applies_mods():
             "parent_checkpoint_id": parent_checkpoint_id,
         }
     ]
+
+
+async def test_branch_metadata_and_lifecycle_survive_registry_clear(tmp_path: Path):
+    graph = _build_graph()
+    run_dir = tmp_path / "durable-root"
+    parent_thread_id = "durable-root"
+    await _run_parent(graph, thread_id=parent_thread_id, budget=1)
+    parent_checkpoint_id = await _checkpoint_before_first_tick(graph, parent_thread_id)
+
+    metadata, task = await worktree_add(
+        graph,
+        run_id=parent_thread_id,
+        parent_thread_id=parent_thread_id,
+        parent_checkpoint_id=parent_checkpoint_id,
+        run_dir=run_dir,
+    )
+    await task
+
+    assert (run_dir / "branches" / metadata.branch_id / "branch.json").exists()
+    assert lifecycle_state(
+        run_dir,
+        entity_type="branch",
+        entity_id=metadata.thread_id,
+    ) == "succeeded"
+    clear_branch_state()
+    loaded = load_durable_branches(run_dir)
+    assert [branch.thread_id for branch in loaded] == [metadata.thread_id]
+    assert loaded[0].status == "completed"
 
 
 @async_test

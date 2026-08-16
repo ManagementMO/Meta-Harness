@@ -210,7 +210,8 @@ def main() -> None:
     assert info["current_iteration"] == 2
 
     diff, _headers = request_json("GET", f"/runs/{run_id}/candidates/_mock_iter_1/diff")
-    assert "agents/_mock_iter_1.py" in diff["diff"]
+    assert "candidates/cand_" in diff["diff"]
+    assert diff["candidate_id"].startswith("cand_")
     test_output, _headers = request_json(
         "GET",
         f"/runs/{run_id}/candidates/_mock_iter_1/test-output",

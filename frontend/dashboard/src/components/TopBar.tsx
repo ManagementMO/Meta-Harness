@@ -46,7 +46,7 @@ export function TopBar({ onReplay }: { onReplay?: () => void }) {
         )}
         {run && (
           <span className="text-[10px] text-text-mid uppercase tracking-wide">
-            {run.isMock ? 'mock run' : mode} · {run.status} · iter {run.iteration}
+            {run.isSynthetic ? 'synthetic fixture' : run.mode ?? mode} · {run.status} · iter {run.iteration}
           </span>
         )}
         {profile && (

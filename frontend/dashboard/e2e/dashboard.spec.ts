@@ -44,6 +44,12 @@ test.describe('Dashboard (mock mode, no backend)', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
+  test('evidence tab labels fixture data as synthetic', async ({ page }) => {
+    await page.getByRole('button', { name: /evidence/i }).click();
+    await expect(page.getByText(/Synthetic fixture data/)).toBeVisible();
+    await expect(page.getByText('not permitted')).toBeVisible();
+  });
+
   test('right-click tree node opens fork modal', async ({ page }) => {
     const node = page.getByTestId('trajectory-node').first();
     await expect(node).toBeVisible({ timeout: 8_000 });

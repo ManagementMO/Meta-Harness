@@ -15,12 +15,14 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
 from app.meta_harness.harness import PLAN_TOOL_SCHEMA, CodingAgentHarness
+from app.meta_harness.runtime import get_runtime_adapter
 from app.meta_harness.sandbox import run_in_sandbox
 from app.meta_harness.state import CodingAgentState
 from app.meta_harness.tools import TOOL_SCHEMAS, execute_tool
@@ -66,42 +68,12 @@ async def orient(state: CodingAgentState, harness: CodingAgentHarness) -> dict[s
     workspace = Path(state["workspace_path"])
     tree = await asyncio.to_thread(_depth_limited_tree, workspace)
 
-    has_python = (workspace / "pyproject.toml").exists() or any(
-        workspace.rglob("*.py")
-    )
-    project_meta = {
-        "lang": "python" if has_python else "unknown",
-        "test_runner": "pytest" if has_python else "unknown",
-    }
-
-    tests: dict[str, str] = {}
-    for test_file in list(workspace.rglob("test_*.py"))[:10]:
-        if test_file.is_file():
-            try:
-                tests[str(test_file.relative_to(workspace))] = test_file.read_text()[
-                    :4000
-                ]
-            except OSError:
-                pass
-
-    configs: dict[str, str] = {}
-    for cfg_name in ["README.md", "pyproject.toml", "package.json", "Makefile"]:
-        cfg_path = workspace / cfg_name
-        if (
-            cfg_path.exists()
-            and cfg_path.is_file()
-            and cfg_path.stat().st_size < 4000
-        ):
-            try:
-                configs[cfg_name] = cfg_path.read_text()
-            except OSError:
-                pass
-
+    adapter = get_runtime_adapter(state["task"].get("runtime_adapter"))
+    inspected = await asyncio.to_thread(adapter.inspect, workspace)
     summary = {
         "tree": tree[:2000],
-        "project": project_meta,
-        "configs": configs,
-        "tests": tests,
+        "runtime_adapter": adapter.name,
+        **inspected,
     }
 
     trace_dir = _trace_dir_or_none(state)
@@ -134,7 +106,7 @@ async def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str
     )
 
     messages = [{"role": "user", "content": prompt}]
-    response = await harness._call_llm(
+    response = await harness.call_llm(
         messages=messages,
         tools=[PLAN_TOOL_SCHEMA],
         tool_choice={"type": "tool", "name": "submit_plan"},
@@ -181,6 +153,7 @@ async def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str,
     tool_log_path = (trace_dir / "act-tools.jsonl") if trace_dir else None
 
     messages = list(state.get("messages") or [])
+    tool_events = list(state.get("tool_events") or [])
     if not messages:
         messages.append(
             {"role": "user", "content": harness._compose_act_prompt(plan_dict)}
@@ -193,7 +166,7 @@ async def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str,
         if len(messages) > 40:
             messages = harness._summarize_for_overflow(messages)
 
-        response = await harness._call_llm(messages, ACT_TOOLS)
+        response = await harness.call_llm(messages, ACT_TOOLS)
 
         assistant_blocks: list[dict[str, Any]] = []
         tool_uses: list[Any] = []
@@ -218,23 +191,28 @@ async def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str,
                         "content": "Task marked complete; running verify.",
                     }
                 )
+                event = {
+                    "call_id": tu.id,
+                    "turn": turn_count + 1,
+                    "tool": "task_complete",
+                    "input": {},
+                    "output_summary": "complete",
+                    "duration_ms": 0,
+                    "is_error": False,
+                }
+                tool_events.append(event)
                 if tool_log_path is not None:
-                    _append_tool_log(
-                        tool_log_path,
-                        turn=turn_count + 1,
-                        tool="task_complete",
-                        tool_input={},
-                        output_summary="complete",
-                        is_error=False,
-                    )
+                    _append_tool_log(tool_log_path, event)
                 continue
 
             # Tool dispatch is sync (subprocess-based). Wrap in
             # to_thread so we don't block the event loop on long
             # bash commands.
+            tool_started = time.monotonic()
             result = await asyncio.to_thread(
                 execute_tool, tu.name, workspace, **dict(tu.input)
             )
+            duration_ms = int((time.monotonic() - tool_started) * 1000)
             formatted = harness._format_tool_result(tu.name, result)
             is_error = result.get("status") == "error"
             tool_results.append(
@@ -245,15 +223,18 @@ async def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str,
                     "is_error": is_error,
                 }
             )
+            event = {
+                "call_id": tu.id,
+                "turn": turn_count + 1,
+                "tool": tu.name,
+                "input": dict(tu.input),
+                "output_summary": formatted[:400],
+                "duration_ms": duration_ms,
+                "is_error": is_error,
+            }
+            tool_events.append(event)
             if tool_log_path is not None:
-                _append_tool_log(
-                    tool_log_path,
-                    turn=turn_count + 1,
-                    tool=tu.name,
-                    tool_input=dict(tu.input),
-                    output_summary=formatted[:400],
-                    is_error=is_error,
-                )
+                _append_tool_log(tool_log_path, event)
 
         messages.append({"role": "user", "content": tool_results})
         turn_count += 1
@@ -267,25 +248,15 @@ async def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str,
             for m in messages:
                 f.write(json.dumps(m, default=str) + "\n")
 
-    return {"messages": messages, "turn_count": turn_count}
-
-
-def _append_tool_log(
-    path: Path,
-    *,
-    turn: int,
-    tool: str,
-    tool_input: dict[str, Any],
-    output_summary: str,
-    is_error: bool,
-) -> None:
-    entry = {
-        "turn": turn,
-        "tool": tool,
-        "input": tool_input,
-        "output_summary": output_summary,
-        "is_error": is_error,
+    return {
+        "messages": messages,
+        "turn_count": turn_count,
+        "tool_events": tool_events,
+        "telemetry": harness._telemetry().snapshot(),
     }
+
+
+def _append_tool_log(path: Path, entry: dict[str, Any]) -> None:
     with path.open("a") as f:
         f.write(json.dumps(entry, default=str) + "\n")
 
@@ -310,20 +281,40 @@ def _run_verify_subprocess(workspace: Path, test_command: str) -> tuple[bool, st
 async def verify(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str, Any]:
     """Phase 4: run the task's test_command + persist verify.json."""
     workspace = Path(state["workspace_path"])
-    test_command = state["task"].get("test_command", "pytest -q")
-
-    tests_pass, output = await asyncio.to_thread(
-        _run_verify_subprocess, workspace, test_command
+    adapter = get_runtime_adapter(state["task"].get("runtime_adapter"))
+    outcome = await asyncio.to_thread(
+        adapter.verify,
+        workspace,
+        state["task"],
+        timeout_sec=60,
     )
 
     verify_result = {
-        "tests_pass": tests_pass,
+        "tests_pass": outcome.passed,
         "tests_failed": [],
-        "test_output": output,
-        "lint_pass": True,
-        "lint_errors": [],
-        "out_of_plan_changes": [],
+        "test_output": outcome.output,
+        "test_command": outcome.command,
+        "exit_code": outcome.exit_code,
+        "timed_out": outcome.timed_out,
+        "runtime_adapter": adapter.name,
+        "lint_pass": None,
+        "lint_errors": None,
+        "lint_status": "unknown",
+        "out_of_plan_changes": None,
+        "scope_status": "unknown",
     }
+    messages = list(state.get("messages") or [])
+    if not outcome.passed:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "Verification failed. Inspect this exact result, repair the "
+                    "implementation, rerun focused checks, and call task_complete "
+                    f"again when ready.\n\n{outcome.output}"
+                ),
+            }
+        )
 
     trace_dir = _trace_dir_or_none(state)
     if trace_dir is not None:
@@ -332,6 +323,7 @@ async def verify(state: CodingAgentState, harness: CodingAgentHarness) -> dict[s
     return {
         "verify_result": verify_result,
         "verify_attempts": state.get("verify_attempts", 0) + 1,
+        "messages": messages,
     }
 
 
@@ -385,7 +377,11 @@ async def submit(state: CodingAgentState, harness: CodingAgentHarness) -> dict[s
 """
         )
 
-    return {"score": score, "final_files": final_files}
+    return {
+        "score": score,
+        "final_files": final_files,
+        "telemetry": harness._telemetry().snapshot(),
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -415,7 +411,11 @@ def _route_after_verify_for_harness(
     return "act" if harness.should_loop_back_to_act(verify_result) else "submit"
 
 
-def build_inner_graph(harness: CodingAgentHarness, *, checkpointer: Any = None) -> Any:
+def build_default_inner_graph(
+    harness: CodingAgentHarness,
+    *,
+    checkpointer: Any = None,
+) -> Any:
     """Compile the inner-loop ``StateGraph``. ``checkpointer`` is passed
     through to ``compile()``; ``None`` means no checkpointer (in-memory
     only, used by tests and by mock-bench).
@@ -460,6 +460,10 @@ def build_inner_graph(harness: CodingAgentHarness, *, checkpointer: Any = None) 
     return g.compile(checkpointer=checkpointer) if checkpointer else g.compile()
 
 
+def build_inner_graph(harness: CodingAgentHarness, *, checkpointer: Any = None) -> Any:
+    return build_default_inner_graph(harness, checkpointer=checkpointer)
+
+
 def _trace_dir_or_none(state: CodingAgentState) -> Path | None:
     raw = state["task"].get("_trace_dir")
     return Path(raw) if raw else None
@@ -491,9 +495,13 @@ async def run_inner_loop(
         "verify_result": None,
         "final_files": None,
         "score": None,
+        "tool_events": [],
+        "telemetry": harness._telemetry().snapshot(),
     }
 
-    graph = build_inner_graph(harness, checkpointer=checkpointer)
+    graph = harness.build_inner_graph(checkpointer=checkpointer)
+    if not hasattr(graph, "ainvoke"):
+        raise TypeError("build_inner_graph() must return a compiled async graph")
     final_state = await graph.ainvoke(
         initial_state,
         config={"configurable": {"thread_id": thread_id}, "recursion_limit": 100},

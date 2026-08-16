@@ -28,6 +28,14 @@ When this brief conflicts with an older project document, prefer the following o
 
 That ordering matters here because the repository contains useful historical documents whose completion claims no longer line up with the current code. A green test suite is evidence about the tests that ran; it is not by itself evidence that the outer research loop is scientifically valid, that real token accounting works, or that remote/production behavior is safe.
 
+### Implementation update — 2026-08-16
+
+The current working tree now implements the first architecture pass described by this brief: immutable run-scoped candidate manifests, source/runtime/dependency-lock hashes, explicit candidate IDs, baseline evaluation, population evaluation, measured/unknown/synthetic metric contracts, one evaluator for search and holdout, task runtime adapters, corrected retry feedback and structural hooks, inner checkpoint propagation, isolated holdout finalization, paired regression reports, append-only evidence events with content-addressed artifacts and torn-tail recovery, scoped/versioned memory fields, reversible refinement records, durable branch projections, research/autonomous modes, deterministic experiment bundles, repeated-run confidence summaries, and provenance/evidence surfaces in the CLI, API, and dashboard.
+
+This is an implementation claim, not a self-improvement result. Current deterministic and Postgres-backed verification passes with `119 passed, 1 skipped`; the single skip is the credential-gated live Anthropic trial. Frontend lint/build and all 9 Playwright dashboard tests pass, including a live FastAPI/SSE provenance flow. A persistent two-iteration mock CLI run produces three immutable candidates, a candidate-ID frontier, a durable lifecycle/evidence ledger, and a synthetic-labeled report; holdout finalization correctly refuses that synthetic search.
+
+Live provider benchmarking, a stronger security sandbox, an actual recursive/RLM backend, larger task distributions, held-out models, multiple measured seeds, and independent re-execution of exported experiment bundles still require separate validation or additional inputs. The roadmap below remains authoritative for those later gates.
+
 ## Contents
 
 - [Executive conclusion](#executive-conclusion)
@@ -54,15 +62,15 @@ Meta-Harness is a promising experimental substrate: it already has the shape of 
 
 However, the current system should be described as an **early research/demo harness with substantial production-oriented scaffolding**, not yet as a validated self-improving agent platform. Several of the most important quantities used by the outer loop are currently placeholders or are disconnected from the actual execution path:
 
-- real benchmark usage currently records zero tokens and zero cost;
-- `mock_bench` generates synthetic scores and is useful for plumbing, not for improvement claims;
-- only the latest candidate is selected by several outer-loop nodes, even though the state can contain multiple candidates;
-- the real coding-agent proposer and the inner evaluator do not share one clean, run-scoped candidate artifact contract;
-- the inner verifier executes the test command directly instead of using the project sandbox wrapper;
-- lint and out-of-plan checks are currently populated as hard-coded passing/empty values;
-- process-local registries and optional in-memory fallbacks weaken durable run and branch semantics;
-- the search set is very small, and the holdout protocol is not yet integrated into a clearly separated research-finalization flow;
-- documentation describes an earlier build state and sometimes promises stronger isolation or verification than the source currently provides.
+- provider token usage is now measured when exposed and unavailable cost is explicitly unknown, but the live provider path still needs an artifact-backed benchmark run;
+- `mock_bench` is now synthetic throughout the schema and UI and remains useful only for plumbing;
+- populations are evaluated by candidate ID and immutable manifest, but broader search-policy ablations still need real experiments;
+- search and holdout now share one evaluator contract and write separate artifacts without feedback, but anti-leak guarantees remain limited by the trusted-local proposer profile;
+- lint is explicitly unknown and file scope is measured; a configurable lint adapter remains future work;
+- durable events and branch projections now survive registry loss, while active task ownership still requires a full multi-worker admission/reconciliation service for production;
+- the current sandbox remains process/workspace isolation rather than a security boundary;
+- the search set is still very small, and no generalized self-improvement claim is justified yet;
+- the optional recursive/RLM backend, held-out-model studies, repeated seeds, and shareable external experiment bundles remain unimplemented or unvalidated.
 
 The most important strategic recommendation is therefore:
 
@@ -156,20 +164,20 @@ That conceptual model is sound. The key work is making each arrow a real, typed,
 | Area | Live location | Role | Current assessment |
 |---|---|---|---|
 | Public SDK | [`sdk/meta_harness/`](../sdk/meta_harness/) | `wrap_graph`, tracing, run metadata | Thin but appropriately separated from backend internals |
-| Outer loop | [`backend/app/meta_harness/outer.py`](../backend/app/meta_harness/outer.py) | Propose, validate, benchmark, frontier, synthesize | Correct high-level shape; several selection/metric contracts need hardening |
-| Inner harness | [`backend/app/meta_harness/inner.py`](../backend/app/meta_harness/inner.py) | Orient, plan, act, verify, submit | Useful fixed harness; currently Python/pytest-specific and direct-verifier execution is a serious boundary issue |
+| Outer loop | [`backend/app/meta_harness/outer.py`](../backend/app/meta_harness/outer.py) | Baseline, propose, validate, benchmark populations, update frontier | Candidate-ID and immutable-artifact path implemented; live search-policy ablations remain |
+| Inner harness | [`backend/app/meta_harness/inner.py`](../backend/app/meta_harness/inner.py) | Orient, plan, act, verify, submit | Runtime adapters, telemetry, retry feedback, structural hook, and checkpoint propagation implemented |
 | Harness base class | [`backend/app/meta_harness/harness.py`](../backend/app/meta_harness/harness.py) | Prompt and tool override points | Good experimental seam; context and model defaults need explicit contracts |
 | Tools | [`backend/app/meta_harness/tools.py`](../backend/app/meta_harness/tools.py) | Read, search, patch, shell, file operations | Patch validation is a good start; shell and file provenance require stronger task-scoped policy |
-| Sandbox | [`backend/app/meta_harness/sandbox.py`](../backend/app/meta_harness/sandbox.py) | Copy workspace and apply process limits | Process isolation only; not a security sandbox, and not currently used for inner verification |
-| Proposer | [`backend/app/meta_harness/proposer.py`](../backend/app/meta_harness/proposer.py) | Mock or Claude CLI proposer | Real proposer has useful logs but writes into a global source location and runs with broad permissions |
+| Sandbox | [`backend/app/meta_harness/sandbox.py`](../backend/app/meta_harness/sandbox.py) | Copy workspace and apply process limits | Process isolation only; not a security sandbox; shared by tool execution and verification |
+| Proposer | [`backend/app/meta_harness/proposer.py`](../backend/app/meta_harness/proposer.py) | Mock or Claude CLI proposer | Writes run-scoped proposals that are materialized immutably; trusted-local broad permissions and access auditing remain |
 | Persistence | [`backend/app/meta_harness/persistence.py`](../backend/app/meta_harness/persistence.py) | Postgres checkpoint/store setup | Valuable path, but fallback and deployment mode must be explicit |
-| Memory | [`backend/app/meta_harness/memory.py`](../backend/app/meta_harness/memory.py) | Learned patterns in Postgres store | Evidence fields exist, but ranking is largely recency-based and refinement semantics are absent |
-| Branches | [`backend/app/meta_harness/branches.py`](../backend/app/meta_harness/branches.py) | Fork a checkpoint into a new thread | Promising interface; registry and execution lifecycle are process-local |
-| API | [`backend/app/api/`](../backend/app/api/) | Run/branch/stream endpoints | Useful dashboard bridge; source diff path and authorization story need reconciliation |
-| Frontend | [`frontend/dashboard/`](../frontend/dashboard/) | Run graph, candidate and review UI | Operationally useful; build warning identifies workspace-root cleanup needed |
-| Evaluation | [`eval/`](../eval/) | Search/holdout fixtures and binary scorer | Clear frozen-task idea; too small and too binary for strong improvement claims |
+| Memory | [`backend/app/meta_harness/memory.py`](../backend/app/meta_harness/memory.py) | Scoped learned patterns in Postgres store | Version, scope, confidence, candidate evidence, and evidence-ranked retrieval implemented; live ablation remains |
+| Branches | [`backend/app/meta_harness/branches.py`](../backend/app/meta_harness/branches.py) | Fork a checkpoint into an isolated execution directory | Active tasks remain process-owned; metadata, lineage, lifecycle, and terminal state are durably projected |
+| API | [`backend/app/api/`](../backend/app/api/) | Run, artifact, evidence, finalization, branch, memory, and refinement endpoints | Provenance surfaces implemented; backend remains unauthenticated under the trusted-local profile |
+| Frontend | [`frontend/dashboard/`](../frontend/dashboard/) | Run graph, candidate, evidence, and review UI | Synthetic/mode/durability/security labels and evidence panel implemented; live UX validation remains |
+| Evaluation | [`eval/`](../eval/) | Search/holdout fixtures plus shared runtime/evaluator adapters | Per-attempt evidence and aggregate metrics implemented; task set remains too small for generalization claims |
 | Proposer skill | [`skills/meta-harness-coding-agent/SKILL.md`](../skills/meta-harness-coding-agent/SKILL.md) | Agent operating contract | Strong research discipline; implementation must enforce its filesystem and holdout constraints |
-| Baseline | [`agents/baseline.py`](../agents/baseline.py) | Committed reference harness | Good comparison anchor; source location must become an immutable artifact rather than a shared mutable directory |
+| Baseline | [`agents/baseline.py`](../agents/baseline.py) | Committed seed harness | Materialized, hashed, and evaluated through the same candidate/evaluator contract before search |
 
 ### 1.3 Current verification snapshot
 
@@ -391,46 +399,30 @@ The real proposer also runs the Claude CLI with a broad tool allowlist including
 
 [LIVE] [`proposer.py`](../backend/app/meta_harness/proposer.py) supports a mock proposer and a real Claude CLI proposer. The real proposer records useful prompt/event/token/cost logs and is constrained by an operating prompt. It does not include the `Agent` subagent tool used in the Stanford reference loop.
 
-The source lifecycle is currently inconsistent:
+The source lifecycle now uses two explicit stages:
 
-- run helpers and documentation describe candidate layout under `runs/{run_id}/agents/`;
-- the mock proposer writes `repo_root/agents/_mock_iter_N.py`;
-- the real proposer prompt says it should write to `agents/<name>.py`;
-- the API’s diff endpoint reads the root `agents` directory;
-- the baseline is also in root `agents/`.
+1. The proposer writes only to `runs/{run_id}/proposals/iter-{N}/` and registers `source_path` plus `class_name`.
+2. The runtime copies those bytes into `runs/{run_id}/candidates/{candidate_id}/source/harness.py`, records a manifest and SHA-256 identity, and verifies the hash before every load.
 
-This means the filesystem itself is acting as an implicit global registry. Two runs can collide, a branch can observe another run’s source, and a candidate cannot be reconstructed only from a run manifest unless the source is copied or hashed into the run artifact. This is the single most important provenance issue in the outer loop.
+The baseline follows the same materialization and evaluation path. The API diff and manifest endpoints resolve immutable candidate IDs rather than reading root-global generated modules. Branches write to their own execution directories, eliminating the previous shared `pending_eval.json`, candidate-name, frontier, and trace collisions.
 
-The proposer environment also contains a documentation/test mismatch: the module documentation says `ANTHROPIC_API_KEY` is stripped from the child environment, while the test contract explicitly asserts that it is preserved. The project should decide whether authentication is inherited, injected through a broker, or intentionally removed, then update the documentation and tests to express the same policy. The current mismatch should not be left for an agent to infer.
+The authentication policy is now explicit and aligned: the Claude child inherits the configured authentication environment, while session logs record the authorization profile. Research mode audits proposer tool inputs for holdout access and rejects detected violations. Because the proposer still runs as a trusted local process with broad host permissions, that audit is not equivalent to OS-enforced holdout or security isolation.
 
 ### 3.6 Persistence, runs, and branches
 
-[LIVE] The project uses Postgres checkpoint/store components when available, but the application can fall back to in-memory checkpointing. The API maintains a process-local `RunRecord` registry. Branches use process-local `branch_registry` and `branch_metadata`; a fork creates a new thread ID and schedules an asynchronous graph invocation.
+[LIVE] The project uses Postgres checkpoint/store components when available and explicitly labels its in-memory fallback as degraded. Active `asyncio.Task` ownership remains process-local, but run, candidate, task-attempt, model-call, tool-call, verification, frontier, refinement, and lifecycle evidence is appended to a bounded JSONL ledger. Branch metadata, lineage, execution directory, status, and lifecycle are durably projected and can be reloaded after the in-process registry is cleared.
 
-This gives a useful local developer experience, but it is not yet a durable execution model:
+The ledger validates transitions, uses append writes plus `fsync`, stores large payloads as content-addressed artifacts, and can repair an invalid torn tail. Branch files and events provide enough evidence to distinguish completed, failed, canceled, and abandoned work. Search and branch artifacts no longer share mutable candidate or frontier paths.
 
-- a process restart can lose active run/branch registry state;
-- two backend instances cannot safely coordinate solely through process-local dictionaries;
-- a branch may be reported as created before its worker has a durable lifecycle record;
-- cancellation, retry, and reconciliation semantics are implicit;
-- a Postgres outage can silently change durability guarantees if the fallback is not prominently surfaced.
-
-The correct next abstraction is not simply “put more fields in the checkpoint.” It is a durable run/attempt/event ledger with idempotent state transitions. Prime’s worker and RLM ledger design is a useful source of patterns for this part of the system.
+This is still not a complete distributed worker system: two backend instances do not yet have a shared admission lease, active-task ownership protocol, or automatic dead-worker election. The remaining Phase 3 work is therefore multi-worker admission/reconciliation rather than merely adding fields to checkpoints.
 
 ### 3.7 Memory and frontier
 
-[LIVE] [`memory.py`](../backend/app/meta_harness/memory.py) stores learned patterns in an `AsyncPostgresStore` namespace such as `("learned_patterns", domain)`. Values include a pattern, mechanism axis, score delta, evidence run IDs, and creation time. This is a good shape for a future evidence-backed memory system because it already names evidence runs.
+[LIVE] [`memory.py`](../backend/app/meta_harness/memory.py) stores learned patterns with schema version, scope, confidence, task family, mechanism axis, score delta, evidence run IDs, evidence candidate IDs, outcome, and timestamps. Retrieval can filter by scope/task family and ranks confidence, evidence count, outcome delta, and recency. Research mode disables global-memory injection; autonomous mode requires an explicit opt-in.
 
-At present, retrieval is mostly recent/top-N search with optional substring filtering. It is not yet:
+[`refinements.py`](../backend/app/meta_harness/refinements.py) represents prompt, memory, skill, subagent, control-flow, and tool-interface changes as evidence-backed records with before/after hashes and immutable artifacts. Apply, reject, and rollback are explicit ledger events. Research mode permits attempt/run-local application but rejects project/global mutation.
 
-- semantic retrieval;
-- task-family-aware ranking;
-- confidence calibrated;
-- linked to candidate/refinement versions;
-- protected by a rollback protocol;
-- clearly separated into local-run versus global memory.
-
-[`frontier.py`](../backend/app/meta_harness/frontier.py) computes a Pareto-style frontier maximizing accuracy and minimizing average tokens, and selects the best accuracy with a token tie-break. This is exactly the right conceptual direction, but it only becomes meaningful after measured usage and complete candidate evaluation are in place.
+Semantic retrieval and empirical memory ablations remain future work. [`frontier.py`](../backend/app/meta_harness/frontier.py) now treats unknown tokens as unknown rather than zero, records active objective status, and separates archive records, frontier membership, and the configured best-parent policy. Its resource dimension becomes scientifically useful only after a live usage-bearing benchmark validates provider telemetry end to end.
 
 ### 3.8 Evaluation set and proposer skill
 
@@ -444,8 +436,8 @@ At present, retrieval is mostly recent/top-N search with optional substring filt
 
 The holdout contains two tasks:
 
-- `task-006-recursion`
-- `task-007-stack`
+- `task-006-fix-recursion`
+- `task-007-implement-stack`
 
 The scorer in [`eval/score.py`](../eval/score.py) copies a pristine task workspace to a temporary directory and runs its configured test command. It returns a binary result. This is good for protecting pristine fixtures and preventing the evaluator from accidentally modifying the source task, but a five-task search set cannot support strong claims about generalized self-improvement.
 
@@ -460,7 +452,6 @@ The proposer skill in [`skills/meta-harness-coding-agent/SKILL.md`](../skills/me
 - restrict output to the intended candidate and pending evaluation artifacts;
 - do not access holdout tasks during search.
 
-These rules should be turned into executable checks wherever possible. A skill is guidance; a run-scoped filesystem policy and evaluator boundary are enforcement.
 These rules should be turned into executable checks wherever possible. A skill is guidance; a run-scoped filesystem policy and evaluator boundary are enforcement.
 
 ## 4. Findings: what is strong, what is misleading, and what blocks confidence
@@ -501,11 +492,13 @@ These rules should be turned into executable checks wherever possible. A skill i
 | P1 | Auth/environment documentation and tests disagree | A future security change may be applied incorrectly | Choose one auth policy and encode it in a contract test |
 | P1 | Docs describe historical completion states | Agents can implement against stale assumptions | Add snapshot dates and reconcile status docs |
 
+**2026-08-16 status:** the P0 candidate, mock-labeling, shared-evaluator, verifier, scope, and finalization contracts above are implemented. Provider usage is captured when exposed and unknown otherwise; a live benchmark is still required to validate it. The P1 candidate-ID, population, policy, typed-contract, runtime-adapter, evidence-retention, memory-ranking, lifecycle-ledger, and auth-documentation corrections are also implemented at the local single-process layer. Distributed worker admission, semantic retrieval, real ablations, and historical-document cleanup remain open.
+
 ### 4.4 The central architectural diagnosis
 
-The current project has a **good experimental control graph but a weak artifact/evidence substrate**. The outer nodes know roughly what to do, but they often communicate through mutable filesystem conventions, list position, synthetic/default metric fields, or process-local registries.
+At the original snapshot, the project had a **good experimental control graph but a weak artifact/evidence substrate**. The 2026-08-16 implementation pass replaces mutable candidate files, list-position selection, placeholder metrics, and summary-only evidence with explicit contracts and durable artifacts. The remaining weakness is operational validation: live models, stronger isolation, distributed ownership, and broader experiments have not yet proved those contracts under production-like load.
 
-This is why adding more agent intelligence immediately would be premature. A more capable proposer would produce more candidates, but the system would still struggle to answer:
+Adding more agent intelligence remains premature until those gates pass. A more capable proposer must not outpace the system’s ability to answer:
 
 - Which exact source was evaluated?
 - Which model and prompt version produced the trace?

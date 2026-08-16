@@ -72,6 +72,10 @@ async def add_pattern(
     score_delta: float,
     run_id: str,
     domain: str = DEFAULT_DOMAIN,
+    candidate_id: str | None = None,
+    scope: str = "global",
+    task_family: str | None = None,
+    confidence: float = 1.0,
 ) -> str:
     """Write one pattern to the memory store. Returns the generated key.
 
@@ -79,10 +83,17 @@ async def add_pattern(
     """
     key = uuid.uuid4().hex[:12]
     value = {
+        "schema_version": 1,
+        "version": 1,
         "pattern": pattern,
         "mechanism_axis": mechanism_axis,
         "score_delta": round(score_delta, 4),
         "evidence_run_ids": [run_id],
+        "evidence_candidate_ids": [candidate_id] if candidate_id else [],
+        "scope": scope,
+        "task_family": task_family,
+        "confidence": max(0.0, min(float(confidence), 1.0)),
+        "outcome": "accepted",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await store.aput(_namespace(domain), key, value)
@@ -98,6 +109,8 @@ async def search_patterns(
     domain: str = DEFAULT_DOMAIN,
     limit: int = 5,
     query: str | None = None,
+    scope: str | None = None,
+    task_family: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return the top-N most recent patterns for a domain, optionally
     filtered by ``query``.
@@ -131,8 +144,23 @@ async def search_patterns(
             if needle in str(r.get("pattern", "")).lower()
             or needle in str(r.get("mechanism_axis", "")).lower()
         ]
-    # Sort by created_at descending (newest first) for recency weighting.
-    results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    if scope:
+        results = [result for result in results if result.get("scope") == scope]
+    if task_family:
+        results = [
+            result
+            for result in results
+            if result.get("task_family") in {None, task_family}
+        ]
+    results.sort(
+        key=lambda result: (
+            float(result.get("confidence", 0.0) or 0.0),
+            len(result.get("evidence_run_ids", [])),
+            float(result.get("score_delta", 0.0) or 0.0),
+            result.get("created_at", ""),
+        ),
+        reverse=True,
+    )
     return results[:limit]
 
 

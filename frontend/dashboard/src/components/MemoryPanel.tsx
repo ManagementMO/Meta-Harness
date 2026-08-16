@@ -5,14 +5,14 @@ import { useDashboard } from '@/lib/state';
 import type { MemoryEntry } from '@/lib/types';
 
 export function MemoryPanel() {
-  const { logEntries, mode } = useDashboard();
+  const { logEntries, mode, run } = useDashboard();
   const [storedPatterns, setStoredPatterns] = useState<MemoryEntry[]>([]);
 
   const memoryEntries = logEntries.filter(e => e.tag === 'memory');
   const totalPatterns = storedPatterns.length + memoryEntries.length;
 
   useEffect(() => {
-    if (mode !== 'live') return;
+    if (mode !== 'live' || run?.mode === 'research') return;
     let cancelled = false;
     listMemory('coding-agent', 20)
       .then(entries => {
@@ -24,7 +24,7 @@ export function MemoryPanel() {
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [mode, run?.mode]);
 
   return (
     <div className="flex flex-col h-full">
@@ -69,7 +69,9 @@ export function MemoryPanel() {
 
         {totalPatterns === 0 && (
           <div className="text-[9px] text-text-ghost uppercase tracking-wide mt-4">
-            No memory patterns available yet.
+            {run?.mode === 'research'
+              ? 'Global memory is disabled in research mode.'
+              : 'No memory patterns available yet.'}
           </div>
         )}
       </div>

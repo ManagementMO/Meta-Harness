@@ -10,7 +10,7 @@ function hasAuth0Config(): boolean {
   );
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   if (!hasAuth0Config()) {
     return NextResponse.next();
   }

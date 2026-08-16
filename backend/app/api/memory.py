@@ -28,6 +28,8 @@ router = APIRouter(tags=["memory"])
 class MemorySearchRequest(BaseModel):
     query: str
     limit: int = Field(default=5, ge=1)
+    scope: str | None = None
+    task_family: str | None = None
 
 
 def _namespace(namespace: str) -> list[str]:
@@ -103,6 +105,8 @@ async def search_memory(
             domain=namespace,
             limit=payload.limit,
             query=payload.query or None,
+            scope=payload.scope,
+            task_family=payload.task_family,
         )
         return {
             "namespace": _namespace(namespace),

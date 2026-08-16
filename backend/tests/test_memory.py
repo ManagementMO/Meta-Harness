@@ -175,6 +175,8 @@ async def test_outer_loop_with_memory_store(tmp_path: Path):
             budget=2,
             checkpointer=saver,
             memory_store=mstore,
+            mode="autonomous",
+            allow_global_memory=True,
         )
 
         assert final["iteration"] == 2
@@ -187,9 +189,3 @@ async def test_outer_loop_with_memory_store(tmp_path: Path):
         # on mock_bench scoring), but if any were accepted, patterns exist.
         # At minimum, verify the store is queryable without error.
         assert isinstance(results, list)
-
-    # Cleanup mock harness stubs from repo-root agents/.
-    for c in final["candidates"]:
-        stub = REPO_ROOT / "agents" / f"{c['name']}.py"
-        if stub.exists():
-            stub.unlink()

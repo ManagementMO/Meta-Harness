@@ -21,16 +21,19 @@ router = APIRouter(tags=["branches"])
 
 @router.get("/runs/{run_id}/branches")
 async def list_run_branches(run_id: str, request: Request) -> dict[str, Any]:
-    get_run_dir(request, run_id)
+    run_dir = get_run_dir(request, run_id)
     return {
-        "branches": [branch.to_dict() for branch in list_branches(run_id=run_id)]
+        "branches": [
+            branch.to_dict()
+            for branch in list_branches(run_id=run_id, run_dir=run_dir)
+        ]
     }
 
 
 @router.get("/runs/{run_id}/trajectory")
 async def get_run_trajectory(run_id: str, request: Request) -> dict[str, Any]:
-    get_run_dir(request, run_id)
-    return {"trajectory": reconstruct_trajectory(run_id)}
+    run_dir = get_run_dir(request, run_id)
+    return {"trajectory": reconstruct_trajectory(run_id, run_dir=run_dir)}
 
 
 @router.post("/runs/{run_id}/branches/{thread_id}/cancel")
@@ -39,7 +42,8 @@ async def cancel_run_branch(
     thread_id: str,
     request: Request,
 ) -> dict[str, str]:
-    get_run_dir(request, run_id)
+    run_dir = get_run_dir(request, run_id)
+    list_branches(run_id=run_id, run_dir=run_dir)
     if get_branch(thread_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

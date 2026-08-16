@@ -20,10 +20,11 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from app.meta_harness.runtime import get_runtime_adapter, load_task_spec
 
 EVAL_ROOT = Path(__file__).resolve().parent
 TASKS_DIR = EVAL_ROOT / "tasks"
@@ -42,40 +43,43 @@ def score_task(
     if not task_dir.exists():
         raise FileNotFoundError(f"task not found: {task_dir}")
 
-    task_spec = json.loads((task_dir / "task.json").read_text())
-    test_command = task_spec.get("test_command", "pytest -q")
+    task_spec = load_task_spec(
+        task_dir,
+        visibility="holdout" if holdout else "search",
+    )
 
     if workspace_override is None:
         with tempfile.TemporaryDirectory(prefix="meta-harness-eval-") as tmp:
             tmp_workspace = Path(tmp) / "workspace"
             shutil.copytree(task_dir / "workspace", tmp_workspace)
-            return _run_in(tmp_workspace, test_command, task_id)
-    return _run_in(Path(workspace_override), test_command, task_id, timeout_sec)
+            return _run_in(tmp_workspace, task_spec.model_dump(mode="json"), timeout_sec)
+    return _run_in(
+        Path(workspace_override),
+        task_spec.model_dump(mode="json"),
+        timeout_sec,
+    )
 
 
 def _run_in(
     workspace: Path,
-    test_command: str,
-    task_id: str,
+    task_spec: dict,
     timeout_sec: int = 120,
 ) -> dict:
-    proc = subprocess.run(  # noqa: S602 — controlled test command
-        test_command,
-        shell=True,
-        cwd=workspace,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout_sec,
+    adapter = get_runtime_adapter(task_spec.get("runtime_adapter"))
+    outcome = adapter.verify(
+        workspace,
+        task_spec,
+        timeout_sec=timeout_sec,
     )
     return {
-        "task": task_id,
-        "passed": proc.returncode == 0,
-        "score": 1.0 if proc.returncode == 0 else 0.0,
-        "exit_code": proc.returncode,
-        "stdout": proc.stdout[-4000:],
-        "stderr": proc.stderr[-2000:],
+        "task": task_spec["id"],
+        "passed": outcome.passed,
+        "score": 1.0 if outcome.passed else 0.0,
+        "exit_code": outcome.exit_code,
+        "stdout": outcome.output[-4000:],
+        "stderr": "",
+        "timed_out": outcome.timed_out,
+        "runtime_adapter": adapter.name,
     }
 
 

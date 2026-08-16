@@ -1,0 +1,264 @@
+"""Reproducible run reports and isolated holdout finalization."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from app.meta_harness.artifacts import atomic_write_json, sha256_file
+from app.meta_harness.candidates import (
+    locate_candidate,
+    mirror_candidate_artifact,
+    resolve_candidate_id,
+)
+from app.meta_harness.contracts import EvaluationPolicy, RunMode, utc_now
+from app.meta_harness.evaluator import Evaluator
+from app.meta_harness.runtime import discover_tasks
+
+
+def _candidate_ids_for_finalization(
+    run_dir: Path,
+    requested: list[str] | None,
+) -> list[str]:
+    if requested:
+        return list(dict.fromkeys(resolve_candidate_id(run_dir, value) for value in requested))
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    frontier_path = run_dir / "frontier_val.json"
+    frontier = json.loads(frontier_path.read_text()) if frontier_path.exists() else {}
+    values: list[str] = []
+    baseline_id = resolve_candidate_id(run_dir, "baseline")
+    values.append(baseline_id)
+    values.extend(str(value) for value in frontier.get("_pareto_ids", []))
+    branches_root = run_dir / "branches"
+    if branches_root.exists():
+        for branch_frontier_path in sorted(branches_root.glob("*/frontier_val.json")):
+            branch_frontier = json.loads(branch_frontier_path.read_text())
+            values.extend(
+                str(value) for value in branch_frontier.get("_pareto_ids", [])
+            )
+            branch_best = (branch_frontier.get("_best") or {}).get("candidate_id")
+            if branch_best:
+                values.append(str(branch_best))
+    best_id = manifest.get("best_candidate_id")
+    if best_id:
+        values.append(str(best_id))
+    elif (frontier.get("_best") or {}).get("candidate_id"):
+        values.append(str(frontier["_best"]["candidate_id"]))
+    return list(dict.fromkeys(values))
+
+
+def _paired_comparison(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    baseline_tasks = baseline.get("per_task", {})
+    candidate_tasks = candidate.get("per_task", {})
+    task_ids = sorted(set(baseline_tasks) | set(candidate_tasks))
+    improved: list[str] = []
+    regressed: list[str] = []
+    unchanged: list[str] = []
+    deltas: dict[str, float] = {}
+    for task_id in task_ids:
+        baseline_rate = float((baseline_tasks.get(task_id) or {}).get("pass_rate", 0.0))
+        candidate_rate = float((candidate_tasks.get(task_id) or {}).get("pass_rate", 0.0))
+        delta = round(candidate_rate - baseline_rate, 6)
+        deltas[task_id] = delta
+        if delta > 0:
+            improved.append(task_id)
+        elif delta < 0:
+            regressed.append(task_id)
+        else:
+            unchanged.append(task_id)
+    return {
+        "paired_task_deltas": deltas,
+        "improved_task_ids": improved,
+        "regressed_task_ids": regressed,
+        "unchanged_task_ids": unchanged,
+        "regression_count": len(regressed),
+    }
+
+
+async def finalize_run(
+    *,
+    run_dir: Path,
+    repo_root: Path,
+    holdout_tasks_dir: Path,
+    candidate_ids: list[str] | None = None,
+    trials: int | None = None,
+    workers: int | None = None,
+    checkpointer: Any = None,
+    allow_synthetic_search: bool = False,
+) -> dict[str, Any]:
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("synthetic") and not allow_synthetic_search:
+        raise ValueError("synthetic search runs cannot produce research finalization reports")
+    search_policy = EvaluationPolicy.model_validate(manifest["policy"])
+    holdout_tasks = discover_tasks(holdout_tasks_dir, visibility="holdout")
+    if not holdout_tasks:
+        raise ValueError(f"no holdout tasks found in {holdout_tasks_dir}")
+    holdout_policy = EvaluationPolicy(
+        policy_id=f"holdout_{search_policy.policy_id}",
+        mode=RunMode.RESEARCH,
+        task_visibility="holdout",
+        sandbox_profile=search_policy.sandbox_profile,
+        runtime_adapter="task-declared",
+        execution_backend=search_policy.execution_backend,
+        inner_model=search_policy.inner_model,
+        model_provider=search_policy.model_provider,
+        trials=trials or search_policy.trials,
+        workers=workers or search_policy.workers,
+        allow_global_memory=False,
+        allow_recursive_children=False,
+        synthetic=False,
+    )
+    evaluator = Evaluator(
+        run_dir=run_dir,
+        repo_root=repo_root,
+        policy=holdout_policy,
+        checkpointer=checkpointer,
+        phase="holdout",
+        run_id=str(manifest.get("run_id", run_dir.name)),
+    )
+    selected_ids = _candidate_ids_for_finalization(run_dir, candidate_ids)
+    evaluations: dict[str, dict[str, Any]] = {}
+    for candidate_id in selected_ids:
+        artifact_root, _resolved_id = locate_candidate(run_dir, candidate_id)
+        artifact = mirror_candidate_artifact(
+            artifact_root,
+            run_dir,
+            candidate_id,
+        )
+        evaluation = await evaluator.evaluate_candidate(artifact, holdout_tasks)
+        evaluations[candidate_id] = evaluation.model_dump(mode="json")
+    baseline_id = resolve_candidate_id(run_dir, "baseline")
+    baseline = evaluations.get(baseline_id)
+    if baseline is None:
+        raise ValueError("baseline must be included in finalization")
+    comparisons = {
+        candidate_id: _paired_comparison(baseline, evaluation)
+        for candidate_id, evaluation in evaluations.items()
+        if candidate_id != baseline_id
+    }
+    report = {
+        "schema_version": 1,
+        "run_id": manifest.get("run_id", run_dir.name),
+        "phase": "holdout_finalization",
+        "feedback_to_search": False,
+        "search_manifest": {
+            "path": "manifest.json",
+            "sha256": sha256_file(manifest_path),
+        },
+        "search_policy_id": search_policy.policy_id,
+        "holdout_policy": holdout_policy.model_dump(mode="json"),
+        "holdout_tasks": [
+            {"task_id": task.id, "sha256": task.sha256}
+            for task in holdout_tasks
+        ],
+        "candidate_ids": selected_ids,
+        "baseline_candidate_id": baseline_id,
+        "evaluations": evaluations,
+        "comparisons": comparisons,
+        "synthetic": False,
+        "human_intervention": False,
+        "finalized_at": utc_now(),
+    }
+    atomic_write_json(run_dir / "finalization.json", report)
+    atomic_write_json(
+        run_dir / "holdout-result.json",
+        {
+            "candidate": manifest.get("best_candidate"),
+            "candidate_id": manifest.get("best_candidate_id"),
+            "baseline_candidate_id": baseline_id,
+            "evaluations": evaluations,
+            "comparisons": comparisons,
+            "synthetic": False,
+            "feedback_to_search": False,
+        },
+    )
+    return report
+
+
+def _compact_result(value: dict[str, Any]) -> dict[str, Any]:
+    task_results = value.get("task_results", [])
+    failures = [result for result in task_results if not result.get("passed", False)]
+    excluded = {"task_results", "artifact_refs"}
+    return {
+        **{key: item for key, item in value.items() if key not in excluded},
+        "failure_count": len(failures),
+        "failure_categories": sorted(
+            {
+                str(result.get("failure_category"))
+                for result in failures
+                if result.get("failure_category")
+            }
+        ),
+        "attempt_ids": [result.get("attempt_id") for result in task_results],
+    }
+
+
+def build_run_report(run_dir: Path) -> dict[str, Any]:
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    frontier = json.loads((run_dir / "frontier_val.json").read_text())
+    summary_paths = [run_dir / "evolution_summary.jsonl"]
+    branches_root = run_dir / "branches"
+    if branches_root.exists():
+        summary_paths.extend(sorted(branches_root.glob("*/evolution_summary.jsonl")))
+    rows = [
+        json.loads(line)
+        for summary_path in summary_paths
+        if summary_path.exists()
+        for line in summary_path.read_text().splitlines()
+        if line.strip()
+    ]
+    frontier_ids = list(frontier.get("_pareto_ids", []))
+    if branches_root.exists():
+        for branch_frontier_path in sorted(branches_root.glob("*/frontier_val.json")):
+            branch_frontier = json.loads(branch_frontier_path.read_text())
+            frontier_ids.extend(branch_frontier.get("_pareto_ids", []))
+    frontier_ids = list(dict.fromkeys(frontier_ids))
+    candidate_results: dict[str, dict[str, Any]] = {}
+    candidate_locations: dict[str, str] = {}
+    for candidate_id in frontier_ids:
+        artifact_root, _resolved_id = locate_candidate(run_dir, candidate_id)
+        result_path = artifact_root / "candidates" / candidate_id / "eval-result.json"
+        candidate_locations[candidate_id] = str(
+            artifact_root.relative_to(run_dir) or Path(".")
+        )
+        if result_path.exists():
+            candidate_results[candidate_id] = _compact_result(
+                json.loads(result_path.read_text())
+            )
+    global_best_candidate_id = max(
+        candidate_results,
+        key=lambda candidate_id: float(
+            candidate_results[candidate_id].get("accuracy_value", 0.0) or 0.0
+        ),
+        default=manifest.get("best_candidate_id"),
+    )
+    return {
+        "schema_version": 1,
+        "run_id": manifest.get("run_id", run_dir.name),
+        "git_commit": manifest.get("git_commit"),
+        "git_dirty": manifest.get("git_dirty"),
+        "runtime_sha256": manifest.get("runtime_sha256"),
+        "dependency_lock_sha256": manifest.get("dependency_lock_sha256"),
+        "mode": manifest.get("mode"),
+        "policy": manifest.get("policy"),
+        "parent_policy": manifest.get("parent_policy"),
+        "search_budget": manifest.get("budget"),
+        "synthetic": manifest.get("synthetic", False),
+        "candidate_ids": list(
+            dict.fromkeys(row.get("candidate_id") for row in rows if row.get("candidate_id"))
+        ),
+        "frontier_ids": frontier_ids,
+        "best_candidate_id": manifest.get("best_candidate_id"),
+        "global_best_candidate_id": global_best_candidate_id,
+        "candidate_locations": candidate_locations,
+        "results": candidate_results,
+        "human_intervention": False,
+        "generated_at": utc_now(),
+    }

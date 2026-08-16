@@ -7,9 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypedDict
-
-from langgraph.graph.message import add_messages
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 @dataclass
@@ -30,6 +28,9 @@ class Candidate:
     scores: dict[str, Any] | None = None
     delta: float | None = None
     cost_usd: float | None = None
+    candidate_id: str | None = None
+    artifact_path: str | None = None
+    parent_ids: list[str] | None = None
 
 
 class MetaHarnessState(TypedDict):
@@ -38,10 +39,15 @@ class MetaHarnessState(TypedDict):
     run_id: str
     iteration: int
     budget_remaining: int
-    candidates: list[Candidate]
+    candidates: list[dict[str, Any]]
     frontier: list[str]
     best_candidate: str | None
     proposer_prior: str
+    active_candidate_ids: NotRequired[list[str]]
+    best_candidate_id: NotRequired[str | None]
+    parent_policy: NotRequired[str]
+    mode: NotRequired[str]
+    evaluation_policy: NotRequired[dict[str, Any]]
 
 
 class CodingAgentState(TypedDict):
@@ -51,9 +57,11 @@ class CodingAgentState(TypedDict):
     workspace_path: str
     orient_summary: dict[str, Any] | None
     plan: dict[str, Any] | None
-    messages: Annotated[list[Any], add_messages]
+    messages: list[dict[str, Any]]
     turn_count: int
     verify_attempts: int
     verify_result: dict[str, Any] | None
     final_files: dict[str, str] | None
     score: float | None
+    tool_events: NotRequired[list[dict[str, Any]]]
+    telemetry: NotRequired[dict[str, Any]]

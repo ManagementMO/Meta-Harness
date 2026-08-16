@@ -1,8 +1,10 @@
 # Architecture Overview (Section 1) — Meta-Harness
 
-*The locked architecture for the Meta-Harness project: the LangGraph-native
-substrate around the Stanford reference framework's Meta-Harness paradigm,
-scoped local-only, single-user, with no feature cuts.*
+*Historical architecture baseline. Current source preserves the two-graph
+shape but supersedes mutable name-based candidates with immutable candidate
+bundles, a shared evaluator, explicit research/autonomous modes, evidence
+ledgers, and durable branch projections. Use the deep research brief and current
+tests when this document conflicts with implementation.*
 
 ---
 

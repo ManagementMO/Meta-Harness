@@ -6,8 +6,15 @@ specify a shape; **derivations** are flagged inline. The scope is contracts,
 not implementation.*
 
 Phase 1.2 (FE/BE protocol) is resolved: **SSE for events + REST for
-commands.** Phase 1.3 (skill loading mechanism) is still open and is
-called out where it intersects this document.
+commands.** Phase 1.3 (skill loading mechanism) is resolved.
+
+> **2026-08-16 contract update:** current source and the Pydantic models in
+> `backend/app/meta_harness/contracts.py` supersede older name-based examples
+> below. Evaluated candidates use `candidate_id`, `candidate.json`, immutable
+> source hashes, explicit measurement status, separate search/holdout policies,
+> and append-only evidence events. Name-based fields remain compatibility/UI
+> projections only. Historical examples are retained for lineage and must not
+> be used to reintroduce mutable `agents/<name>.py` evaluation.
 
 ---
 
@@ -410,9 +417,10 @@ can fix the patch without re-reading the file (per Appendix C §C.6.2's
   }
 }
 ```
-Sandbox: `/tmp/meta-harness-task-{uuid}/`, no network, rlimit 512MB RAM /
-60s CPU. Allowed binaries: `python3, pip, pytest, git, bash, ls, cat, grep,
-sed, head, tail, find, diff, make`. **No** `curl, wget, ssh`.
+Execution profile: a copied `/tmp/meta-harness-task-{uuid}/` workspace,
+wall timeout, and supported Unix process limits. There is currently no network
+restriction or binary allowlist. Commands run with the user’s host permissions;
+this is trusted-local process/workspace isolation, not a security sandbox.
 
 ### 3.4 `grep_search`
 
@@ -599,7 +607,11 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 | `GET`  | `/runs/{run_id}` | — | full `RunInfo` (run dir manifest + frontier_val + last few summary rows) | 200 |
 | `GET`  | `/runs/{run_id}/candidates/{candidate_name}/diff` | — | `{"candidate", "parent", "from_path", "to_path", "diff"}` where `diff` is unified diff text between parent and candidate source | 200 |
 | `GET`  | `/runs/{run_id}/candidates/{candidate_name}/test-output` | — | `{"candidate", "output"}` summarizing eval-result and available verify trace output | 200 |
-| `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to all branches via `branch_registry`) | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate}/manifest` | — | Immutable `CandidateArtifact` with source hash, parent IDs, model/policy identity, and provenance | 200 |
+| `GET`  | `/runs/{run_id}/report` | — | Compact reproducibility report with manifest, archive/frontier IDs, metrics, and failure summary | 200 |
+| `GET`  | `/runs/{run_id}/events` | — | Append-only evidence events | 200 |
+| `POST` | `/runs/{run_id}/finalize` | optional candidate IDs/trials/workers | Search-isolated holdout report; rejects synthetic search | 200/409/422 |
+| `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to active and durable branch records) | 200 |
 
 `proposer`, `mock_bench`, `trials`, and `workers` are backend run-control
 fields used by the CLI-equivalent API path and smoke tests. Omitted
@@ -643,7 +655,18 @@ from an existing branch thread without changing the route shape.
 the backend returns empty result sets with `implemented=false`; callers
 must treat that as a valid degraded mode, not an error.
 
-### 6.6 Events / SSE (`api/events.py`)
+### 6.6 Refinements (`api/refinements.py`)
+
+| Method | Path | Role |
+|---|---|---|
+| `GET` | `/runs/{run_id}/refinements` | List versioned refinement records |
+| `POST` | `/runs/{run_id}/refinements` | Propose an evidence-backed prompt/memory/skill/subagent/control-flow/tool-interface change |
+| `GET` | `/runs/{run_id}/refinements/{refinement_id}` | Read one record and immutable hashes |
+| `POST` | `/runs/{run_id}/refinements/{refinement_id}/apply` | Apply after hash/precondition checks; project/global scope is rejected in research mode |
+| `POST` | `/runs/{run_id}/refinements/{refinement_id}/reject` | Preserve a rejected proposal and reason |
+| `POST` | `/runs/{run_id}/refinements/{refinement_id}/rollback` | Restore the before artifact or remove a newly created run-local target |
+
+### 6.7 Events / SSE (`api/events.py`)
 
 | Method | Path | Response |
 |---|---|---|
@@ -683,11 +706,11 @@ Blank line terminates each event. Reconnect via `Last-Event-ID` header
 | Event | Fired by | Data shape |
 |---|---|---|
 | `state-update` | every LangGraph node transition | `{thread_id, node, iteration, ts, summary}` |
-| `checkpoint-written` | AsyncPostgresSaver post-write | `{thread_id, checkpoint_id, parent_checkpoint_id, ts, node}` |
-| `candidate-created` | `propose` node after parsing pending_eval.json | `{thread_id, candidate, parent_candidate_name, import_path, parent, iteration, status, scores, delta, hypothesis, axis}` |
+| `checkpoint-written` | API checkpoint-history projection (emitted after run completion; live fork actions query the checkpoint endpoint directly) | `{thread_id, checkpoint_id, parent_checkpoint_id, ts, node, candidate?, candidate_id?}` |
+| `candidate-created` | proposal materialization | `{thread_id, candidate, candidate_id, parent_candidate_name, parent_ids, iteration, status, hypothesis, axis, synthetic}` |
 | `validate-result` | `validate` node | `{thread_id, candidate, valid, error?}` |
-| `eval-result` | `benchmark` node | `{thread_id, candidate, parent_candidate_name, iteration, status, accuracy, scores, per_task, tokens, cost_usd, hypothesis, axis}` |
-| `frontier-updated` | `update_frontier` node | `{thread_id, candidate, parent_candidate_name, iteration, frontier, best_candidate, best_score, status, accepted, delta, scores, hypothesis, axis}` |
+| `eval-result` | shared evaluator | `{thread_id, candidate, candidate_id, parent_ids, iteration, status, accuracy, scores, per_task, tokens, cost_usd, hypothesis, axis, synthetic}` |
+| `frontier-updated` | `update_frontier` node | `{thread_id, candidate, candidate_id, iteration, frontier, frontier_ids, best_candidate, best_candidate_id, best_score, delta, scores, synthetic}` |
 | `iteration-complete` | end of `update_frontier` | `{thread_id, iteration, status: "improved"\|"no_improvement"}` |
 | `fork-created` | `worktree_add` | `{thread_id, parent_thread_id, parent_checkpoint_id, mods_summary}` |
 | `branch-cancelled` | cancel endpoint | `{thread_id, reason}` |

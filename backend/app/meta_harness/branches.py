@@ -15,12 +15,17 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 from langgraph.graph import END, START
+
+from app.meta_harness.artifacts import atomic_write_json
+from app.meta_harness.ledger import lifecycle_state, transition_lifecycle
 
 BranchStatus = Literal["created", "running", "completed", "failed", "cancelled"]
 
@@ -45,6 +50,8 @@ class BranchMetadata:
     mods: dict[str, Any] = field(default_factory=dict)
     name: str | None = None
     result: dict[str, Any] | None = None
+    run_dir: str | None = None
+    execution_dir: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable shape for API/CLI callers."""
@@ -84,6 +91,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _persist_branch(metadata: BranchMetadata) -> None:
+    if metadata.execution_dir is None:
+        return
+    atomic_write_json(Path(metadata.execution_dir) / "branch.json", metadata.to_dict())
+
+
+def load_durable_branches(run_dir: Path) -> list[BranchMetadata]:
+    branches_root = run_dir / "branches"
+    if not branches_root.exists():
+        return []
+    loaded: list[BranchMetadata] = []
+    for path in sorted(branches_root.glob("*/branch.json")):
+        try:
+            metadata = BranchMetadata(**json.loads(path.read_text()))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+        loaded.append(metadata)
+        branch_metadata.setdefault(metadata.thread_id, metadata)
+    return loaded
+
+
 def _configurable(config: dict[str, Any] | None) -> dict[str, Any]:
     if not config:
         return {}
@@ -106,6 +134,7 @@ def _values_summary(values: dict[str, Any]) -> dict[str, Any]:
         "iteration": values.get("iteration"),
         "budget_remaining": values.get("budget_remaining"),
         "best_candidate": values.get("best_candidate"),
+        "best_candidate_id": values.get("best_candidate_id"),
         "frontier_count": len(values.get("frontier") or []),
         "candidates_count": len(candidates),
         "proposer_prior": values.get("proposer_prior"),
@@ -186,6 +215,7 @@ async def worktree_add(
     mods: dict[str, Any] | None = None,
     name: str | None = None,
     recursion_limit: int = 200,
+    run_dir: Path | None = None,
 ) -> tuple[BranchMetadata, asyncio.Task[Any]]:
     """Fork a checkpoint into a new concurrent branch.
 
@@ -204,6 +234,9 @@ async def worktree_add(
 
     branch_id = uuid.uuid4().hex[:8]
     thread_id = f"{parent_thread_id}.fork.{branch_id}"
+    execution_dir = run_dir / "branches" / branch_id if run_dir is not None else None
+    if execution_dir is not None:
+        execution_dir.mkdir(parents=True, exist_ok=True)
     metadata = BranchMetadata(
         branch_id=branch_id,
         run_id=run_id,
@@ -214,16 +247,43 @@ async def worktree_add(
         created_at=_now(),
         mods=mods,
         name=name,
+        run_dir=str(run_dir) if run_dir is not None else None,
+        execution_dir=str(execution_dir) if execution_dir is not None else None,
     )
     branch_metadata[thread_id] = metadata
+    _persist_branch(metadata)
+    if run_dir is not None:
+        for state_name in ("created", "admitted", "running"):
+            transition_lifecycle(
+                run_dir,
+                run_id=run_id,
+                entity_type="branch",
+                entity_id=thread_id,
+                to_state=state_name,
+                thread_id=thread_id,
+                details={
+                    "parent_thread_id": parent_thread_id,
+                    "parent_checkpoint_id": parent_checkpoint_id,
+                    "branch_id": branch_id,
+                },
+            )
 
-    fork_config = await graph.aupdate_state(
-        {"configurable": {"thread_id": thread_id}},
-        fork_values,
-        as_node=as_node,
-    )
+    try:
+        fork_config = await graph.aupdate_state(
+            {"configurable": {"thread_id": thread_id}},
+            fork_values,
+            as_node=as_node,
+        )
+    except Exception as exc:
+        metadata.status = "failed"
+        metadata.finished_at = _now()
+        metadata.error = str(exc)
+        _persist_branch(metadata)
+        _transition_branch_terminal(metadata, "failed")
+        raise
     metadata.status = "running"
     metadata.started_at = _now()
+    _persist_branch(metadata)
 
     task = asyncio.create_task(
         _run_branch(graph, metadata, fork_config, recursion_limit),
@@ -246,11 +306,18 @@ async def cancel_branch(thread_id: str) -> BranchMetadata:
             pass
     if metadata.status not in {"completed", "failed", "cancelled"}:
         _mark_cancelled(metadata)
+        _transition_branch_terminal(metadata, "canceled")
     return metadata
 
 
-def list_branches(*, run_id: str | None = None) -> list[BranchMetadata]:
-    """List branch metadata, optionally filtered by run id."""
+def list_branches(
+    *,
+    run_id: str | None = None,
+    run_dir: Path | None = None,
+) -> list[BranchMetadata]:
+    """List branch metadata, optionally loading durable records."""
+    if run_dir is not None:
+        load_durable_branches(run_dir)
     branches = list(branch_metadata.values())
     if run_id is not None:
         branches = [b for b in branches if b.run_id == run_id]
@@ -262,9 +329,13 @@ def get_branch(thread_id: str) -> BranchMetadata | None:
     return branch_metadata.get(thread_id)
 
 
-def reconstruct_trajectory(run_id: str) -> dict[str, Any]:
-    """Build a branch tree shape for future dashboard/API use."""
-    branches = list_branches(run_id=run_id)
+def reconstruct_trajectory(
+    run_id: str,
+    *,
+    run_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Build a branch tree from durable and active branch records."""
+    branches = list_branches(run_id=run_id, run_dir=run_dir)
     threads: dict[str, dict[str, Any]] = {
         run_id: {
             "thread_id": run_id,
@@ -327,15 +398,20 @@ async def _run_branch(
         )
     except asyncio.CancelledError:
         _mark_cancelled(metadata)
+        _transition_branch_terminal(metadata, "canceled")
         raise
     except Exception as exc:  # noqa: BLE001 - branch metadata captures failures
         metadata.status = "failed"
         metadata.finished_at = _now()
         metadata.error = str(exc)
+        _persist_branch(metadata)
+        _transition_branch_terminal(metadata, "failed")
         raise
     metadata.status = "completed"
     metadata.finished_at = _now()
     metadata.result = final if isinstance(final, dict) else {"result": final}
+    _persist_branch(metadata)
+    _transition_branch_terminal(metadata, "succeeded")
     return final
 
 
@@ -350,6 +426,28 @@ def _mark_cancelled(metadata: BranchMetadata) -> None:
     metadata.status = "cancelled"
     metadata.cancelled_at = _now()
     metadata.finished_at = metadata.finished_at or metadata.cancelled_at
+    _persist_branch(metadata)
+
+
+def _transition_branch_terminal(metadata: BranchMetadata, target: str) -> None:
+    if metadata.run_dir is None:
+        return
+    run_dir = Path(metadata.run_dir)
+    current = lifecycle_state(
+        run_dir,
+        entity_type="branch",
+        entity_id=metadata.thread_id,
+    )
+    if current == "running":
+        transition_lifecycle(
+            run_dir,
+            run_id=metadata.run_id,
+            entity_type="branch",
+            entity_id=metadata.thread_id,
+            to_state=target,
+            thread_id=metadata.thread_id,
+            reason=metadata.error,
+        )
 
 
 def _require_branch(thread_id: str) -> BranchMetadata:
