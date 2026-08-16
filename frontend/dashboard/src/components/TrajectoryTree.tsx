@@ -39,6 +39,7 @@ type CandidateData = {
   node: TreeNode;
   isSelected: boolean;
   onFork: (node: TreeNode) => void;
+  onSelect: (node: TreeNode) => void;
   [key: string]: unknown;
 };
 
@@ -123,17 +124,27 @@ const STATUS_META: Record<
 };
 
 const CandidateNodeView = memo(function CandidateNodeView({ data }: NodeProps<CandidateNode>) {
-  const { node, isSelected, onFork } = data;
+  const { node, isSelected, onFork, onSelect } = data;
   const meta = STATUS_META[node.status] ?? STATUS_META.seed;
 
   return (
     <div
       data-testid="trajectory-node"
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={`${node.candidate}, iteration ${node.iteration}, ${node.status}, accuracy ${node.scores.accuracy.toFixed(2)}`}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(node);
+        }
+      }}
       className={cn(
         "node-in group relative rounded-[10px] border bg-node specular-top cursor-pointer select-none",
         "transition-[border-color,box-shadow,opacity] duration-200 ease-[var(--ease-glass)]",
         meta.border,
-        node.status === "rejected" && "opacity-45 hover:opacity-80",
+        node.status === "rejected" && "opacity-45 hover:opacity-80 focus-within:opacity-80",
         node.status === "best" && "shadow-[0_0_24px_rgba(255,255,255,0.10)]",
         isSelected && "border-frost/80 shadow-[0_0_0_1px_rgba(232,238,245,0.35),0_0_20px_rgba(255,255,255,0.08)]",
       )}
@@ -143,7 +154,7 @@ const CandidateNodeView = memo(function CandidateNodeView({ data }: NodeProps<Ca
       <Handle type="source" position={Position.Bottom} className="!opacity-0 !pointer-events-none !w-px !h-px !min-w-0 !min-h-0 !border-0 !bg-transparent" />
 
       <div className="px-3 pt-2 flex items-start justify-between gap-2">
-        <span className="font-mono text-[9px] tracking-[0.12em] text-ink-ghost">
+        <span className="font-mono text-[9px] tracking-[0.12em] text-ink-low">
           ITER {node.iteration}
           {node.isForkBranch ? "′" : ""}
         </span>
@@ -166,7 +177,7 @@ const CandidateNodeView = memo(function CandidateNodeView({ data }: NodeProps<Ca
             {node.delta.toFixed(2)}
           </span>
         )}
-        {node.scores.synthetic && <span className="text-[8.5px] text-sand/80 tracking-[0.1em]">SYN</span>}
+        {node.scores.synthetic && <span className="text-[8.5px] text-sand tracking-[0.1em]">SYN</span>}
       </div>
 
       <button
@@ -297,6 +308,11 @@ function TrajectoryFlow() {
     [dispatch, mode, params.run_id, run?.checkpointId],
   );
 
+  const selectCandidate = useCallback(
+    (node: TreeNode) => dispatch({ type: "SELECT_NODE", payload: nodeKey(node) }),
+    [dispatch],
+  );
+
   const { nodes, edges } = useMemo(() => {
     const positions = layoutTree(tree);
     const lineage = bestLineage(tree);
@@ -314,7 +330,12 @@ function TrajectoryFlow() {
           position: pos,
           width: NODE_W,
           height: NODE_H,
-          data: { node, isSelected: selectedNode === key, onFork: requestFork },
+          data: {
+            node,
+            isSelected: selectedNode === key,
+            onFork: requestFork,
+            onSelect: selectCandidate,
+          },
         };
       });
 
@@ -351,7 +372,7 @@ function TrajectoryFlow() {
       });
     }
     return { nodes, edges };
-  }, [tree, selectedNode, requestFork]);
+  }, [tree, selectedNode, requestFork, selectCandidate]);
 
   // Refit as the tree grows — debounced so streams don't thrash the camera.
   // Never fit below readable zoom: clamp to 0.82 and keep the focus node in
@@ -454,6 +475,7 @@ function TrajectoryFlow() {
           maxZoom={1.75}
           nodesDraggable={false}
           nodesConnectable={false}
+          nodesFocusable={false}
           edgesFocusable={false}
           proOptions={{ hideAttribution: true }}
           className="!bg-transparent"

@@ -59,6 +59,7 @@ export function StatusPill({
   return (
     <span
       data-testid="status-pill"
+      role="status"
       className={cn(
         "inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full border font-mono text-[10px] uppercase tracking-[0.1em] whitespace-nowrap",
         spec.pill,
