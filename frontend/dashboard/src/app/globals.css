@@ -1,58 +1,282 @@
 @import "tailwindcss";
 
+/* ── Obsidian Glass tokens (see DESIGN_SYSTEM.md) ── */
 @theme {
-  --color-void: #0c0c12;
-  --color-panel: #111118;
-  --color-header: #16161e;
-  --color-hover: #1c1c26;
-  --color-active: #222230;
-  --color-border: #22222e;
-  --color-border-active: #32323e;
-  --color-text-hi: #c8c8d0;
-  --color-text-mid: #707084;
-  --color-text-lo: #4e4e5c;
-  --color-text-ghost: #303040;
-  --color-cyan: #7ab8ad;
-  --color-green: #6a9e78;
-  --color-red: #b06068;
-  --color-amber: #b09868;
-  --color-purple: #8878a8;
-  --color-blue: #7090b0;
-  --color-green-bg: #111816;
-  --color-red-bg: #181114;
-  --color-purple-bg: #141218;
-  --color-cyan-bg: #111616;
+  /* canvas */
+  --color-void: #05070a;
+  --color-abyss: #080b10;
+  --color-node: #0c1016;
+
+  /* ink */
+  --color-ink: #e9edf2;
+  --color-ink-mid: #8e99a8;
+  --color-ink-low: #5a6473;
+  --color-ink-ghost: #39414d;
+
+  /* signature accent — glacier */
+  --color-glacier: #69e3d5;
+  --color-glacier-bright: #a7f3ea;
+  --color-glacier-dim: #2e8a81;
+
+  /* semantic whisper tones */
+  --color-moss: #7fae93;
+  --color-ember: #c0808b;
+  --color-sand: #c2a97e;
+  --color-iris: #9d92c4;
+
+  /* type */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --text-display: 30px;
+  --text-display--line-height: 34px;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 600;
+  --text-stat: 22px;
+  --text-stat--line-height: 26px;
+  --text-stat--font-weight: 500;
+  --text-title: 14px;
+  --text-title--line-height: 20px;
+  --text-title--font-weight: 600;
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-data: 12px;
+  --text-data--line-height: 18px;
+  --text-label: 10px;
+  --text-label--line-height: 14px;
+  --text-label--letter-spacing: 0.14em;
+  --text-label--font-weight: 500;
+  --text-micro: 10px;
+  --text-micro--line-height: 14px;
+
+  /* radius family */
+  --radius-panel: 14px;
+  --radius-card: 10px;
+  --radius-control: 7px;
+
+  /* motion */
+  --ease-glass: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* glow */
+  --shadow-glacier-glow: 0 0 24px rgba(105, 227, 213, 0.12);
 }
 
-html, body {
-  background: var(--color-panel);
-  color: var(--color-text-hi);
-  font-family: var(--font-mono);
+/* ── Base ── */
+html,
+body {
   height: 100%;
   overflow: hidden;
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.font-mono,
+code,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgba(105, 227, 213, 0.22);
+  color: var(--color-ink);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border-active) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.09) transparent;
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+:focus-visible {
+  outline: 2px solid var(--color-glacier);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
-@keyframes fade-in-slow {
-  0% {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+/* ── Atmosphere: the void is dimensional, never flat ── */
+.atmosphere {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(1200px 800px at 50% -10%, rgba(105, 227, 213, 0.05), transparent 60%),
+    radial-gradient(900px 600px at 8% 110%, rgba(255, 255, 255, 0.025), transparent 55%),
+    radial-gradient(ellipse 120% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+/* ── Glass surface recipes ── */
+.glass-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.014), transparent 120px),
+    rgba(255, 255, 255, 0.028);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.glass-raised {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 80px),
+    rgba(20, 26, 34, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 24px 64px -24px rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* no blur — safe inside scrollers and canvases */
+.glass-inset {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.well {
+  background: rgba(3, 5, 8, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.panel-sheen {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
+}
+
+.specular-top {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ── Light sweep: primary interactive cards only ── */
+.light-sweep {
+  position: relative;
+  overflow: hidden;
+}
+.light-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-130%) skewX(-18deg);
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.light-sweep:hover::after {
+  transform: translateX(130%) skewX(-18deg);
+  transition: transform 600ms var(--ease-glass);
+}
+
+/* ── Motion vocabulary ── */
+@keyframes breathe {
+  0%,
   100% {
     opacity: 1;
-    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.45;
   }
 }
+.animate-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
 
-.animate-fade-in-slow {
-  animation: fade-in-slow 900ms ease-out;
+@keyframes edge-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.trace-edge {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: edge-draw 450ms var(--ease-glass) backwards;
+}
+
+@keyframes spine-shimmer {
+  from {
+    transform: translateX(-110%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+}
+.spine-shimmer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    rgba(105, 227, 213, 0.08) 50%,
+    transparent 65%
+  );
+  animation: spine-shimmer 700ms var(--ease-glass) forwards;
+}
+
+@keyframes flash-edge {
+  from {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 0 1px rgba(105, 227, 213, 0.35),
+      0 0 20px rgba(105, 227, 213, 0.1);
+  }
+  to {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 0 1px rgba(105, 227, 213, 0),
+      0 0 20px rgba(105, 227, 213, 0);
+  }
+}
+.flash-edge {
+  animation: flash-edge 800ms ease-out forwards;
+}
+
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.chart-line-draw {
+  stroke-dasharray: 1;
+  animation: chart-draw 700ms var(--ease-glass) backwards;
+}
+
+/* ── ReactFlow chrome (no blur inside canvas) ── */
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__pane {
+  cursor: grab;
+}
+.react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+/* ── Reduced motion: render final states instantly ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
