@@ -21,6 +21,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from app.meta_harness.harness import PLAN_TOOL_SCHEMA, CodingAgentHarness
+from app.meta_harness.sandbox import run_in_sandbox
 from app.meta_harness.state import CodingAgentState
 from app.meta_harness.tools import TOOL_SCHEMAS, execute_tool
 
@@ -297,16 +298,7 @@ def _append_tool_log(
 def _run_verify_subprocess(workspace: Path, test_command: str) -> tuple[bool, str]:
     """Sync helper for verify (called via asyncio.to_thread)."""
     try:
-        proc = subprocess.run(  # noqa: S602 — test_command from task spec
-            test_command,
-            shell=True,
-            cwd=workspace,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-        )
+        proc = run_in_sandbox(workspace, test_command, timeout_sec=60)
         return proc.returncode == 0, (proc.stdout + "\n" + proc.stderr)[-2000:]
     except subprocess.TimeoutExpired as exc:
         out = (exc.stdout.decode("utf-8", "replace") if exc.stdout else "") + (

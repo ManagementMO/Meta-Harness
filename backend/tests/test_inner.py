@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,6 +49,37 @@ def test_route_after_verify_delegates_harness_policy():
     state = {"verify_result": {"tests_pass": False}, "verify_attempts": 1}
 
     assert _route_after_verify_for_harness(state, NoRetryHarness()) == "submit"
+
+
+def test_verify_subprocess_uses_shared_sandbox_executor(monkeypatch, tmp_path: Path):
+    from app.meta_harness import inner  # noqa: PLC0415
+
+    calls: dict[str, object] = {}
+
+    def fake_run_in_sandbox(workspace: Path, command: str, *, timeout_sec: int):
+        calls.update(
+            workspace=workspace,
+            command=command,
+            timeout_sec=timeout_sec,
+        )
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="tests passed",
+            stderr="",
+        )
+
+    monkeypatch.setattr(inner, "run_in_sandbox", fake_run_in_sandbox)
+
+    passed, output = inner._run_verify_subprocess(tmp_path, "pytest -q")
+
+    assert passed is True
+    assert output == "tests passed\n"
+    assert calls == {
+        "workspace": tmp_path,
+        "command": "pytest -q",
+        "timeout_sec": 60,
+    }
 
 
 async def test_plan_uses_initial_context_and_harness_llm_call():
