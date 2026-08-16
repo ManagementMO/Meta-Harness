@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.meta_harness.outer import run_outer_loop  # noqa: E402
+from app.meta_harness.reports import build_run_report  # noqa: E402
 from app.meta_harness.runs import candidate_dir, make_run_dir, make_run_path  # noqa: E402
 
 
@@ -114,6 +115,15 @@ async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
         assert (candidate_dir / "eval-result.json").exists()
         assert (candidate_dir / "status.json").exists()
         assert (candidate_dir / "source" / "harness.py").exists()
+
+    report = build_run_report(run_dir)
+    assert report["archive_size"] == 3
+    assert report["frontier_size"] == len(report["frontier_ids"])
+    assert set(report["results"]) == {
+        candidate["candidate_id"] for candidate in final["candidates"]
+    }
+    assert report["search_efficiency"]["measurement_status"] == "synthetic"
+    assert report["artifact_retention"]["keep_raw_traces"] is True
 
 
 async def test_research_outer_loop_rejects_non_scoped_proposal(

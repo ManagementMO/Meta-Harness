@@ -12,6 +12,7 @@ from typing import Any
 
 from app.meta_harness.artifacts import (
     atomic_write_json,
+    sha256_bytes,
     sha256_file,
     store_artifact,
     store_json_artifact,
@@ -255,7 +256,11 @@ class Evaluator:
                 f"task visibility {task.visibility!r} does not match "
                 f"policy {self.policy.task_visibility!r}"
             )
-        attempt_id = f"attempt_{uuid.uuid4().hex}"
+        attempt_key = (
+            f"{self.phase}:{self.policy.policy_id}:{candidate.candidate_id}:"
+            f"{task.id}:{trial_index}"
+        )
+        attempt_id = "attempt_" + sha256_bytes(attempt_key.encode())[:24]
         started_at = _now()
         append_event(
             self.run_dir,
@@ -264,6 +269,7 @@ class Evaluator:
             entity_type="attempt",
             entity_id=attempt_id,
             attempt_id=attempt_id,
+            idempotency_key=f"{attempt_key}:started",
             payload={
                 "candidate_id": candidate.candidate_id,
                 "task_id": task.id,
@@ -403,7 +409,6 @@ class Evaluator:
             started_at=started_at,
             finished_at=_now(),
         )
-        atomic_write_json(trace_dir / "task-result.json", result)
         result_ref = store_json_artifact(self.run_dir, result)
         result.artifact_refs.append(result_ref)
         atomic_write_json(trace_dir / "task-result.json", result)
@@ -417,13 +422,14 @@ class Evaluator:
                 entity_type="model_call",
                 entity_id=f"{attempt_id}:model:{index}",
                 attempt_id=attempt_id,
+                idempotency_key=f"{attempt_key}:model:{index}",
                 payload={
                     "candidate_id": candidate.candidate_id,
                     "task_id": task.id,
                     **model_call,
                 },
             )
-        for tool_event in state.get("tool_events") or []:
+        for tool_index, tool_event in enumerate(state.get("tool_events") or [], 1):
             append_event(
                 self.run_dir,
                 event_type="ToolCallCompleted",
@@ -431,10 +437,13 @@ class Evaluator:
                 entity_type="tool_call",
                 entity_id=str(tool_event.get("call_id") or uuid.uuid4().hex),
                 attempt_id=attempt_id,
+                idempotency_key=f"{attempt_key}:tool:{tool_index}",
                 payload={
                     "candidate_id": candidate.candidate_id,
                     "task_id": task.id,
-                    "tool": tool_event.get("tool"),
+                    "tool_name": tool_event.get("tool"),
+                    "arguments": tool_event.get("input", {}),
+                    "output_summary": tool_event.get("output_summary"),
                     "turn": tool_event.get("turn"),
                     "duration_ms": tool_event.get("duration_ms"),
                     "is_error": tool_event.get("is_error"),
@@ -447,6 +456,7 @@ class Evaluator:
             entity_type="attempt",
             entity_id=attempt_id,
             attempt_id=attempt_id,
+            idempotency_key=f"{attempt_key}:verification",
             payload={
                 "candidate_id": candidate.candidate_id,
                 "task_id": task.id,
@@ -465,11 +475,15 @@ class Evaluator:
             entity_type="attempt",
             entity_id=attempt_id,
             attempt_id=attempt_id,
+            idempotency_key=f"{attempt_key}:finished",
             payload={
                 "candidate_id": candidate.candidate_id,
                 "task_id": task.id,
                 "passed": passed,
                 "score": score,
+                "failure_category": (
+                    failure_category.value if failure_category is not None else None
+                ),
             },
             artifact_refs=evidence_refs,
         )
@@ -527,6 +541,10 @@ class Evaluator:
                 run_id=self.run_id,
                 entity_type="candidate",
                 entity_id=candidate.candidate_id,
+                idempotency_key=(
+                    f"{self.phase}:{self.policy.policy_id}:"
+                    f"{candidate.candidate_id}:aborted"
+                ),
                 payload={
                     "policy_id": self.policy.policy_id,
                     "phase": self.phase,
@@ -622,6 +640,10 @@ class Evaluator:
                 candidate.candidate_id,
             ),
             policy_id=self.policy.policy_id,
+            evaluator_version=EVALUATOR_VERSION,
+            sandbox_profile=self.policy.sandbox_profile,
+            runtime_adapter=self.policy.runtime_adapter,
+            execution_backend=self.policy.execution_backend,
             task_hashes={task.id: task.sha256 for task in tasks},
             n_tasks=len(tasks),
             n_trials_per_task=self.policy.trials,
@@ -820,6 +842,10 @@ class Evaluator:
                 candidate.candidate_id,
             ),
             policy_id=self.policy.policy_id,
+            evaluator_version=EVALUATOR_VERSION,
+            sandbox_profile=self.policy.sandbox_profile,
+            runtime_adapter=self.policy.runtime_adapter,
+            execution_backend=self.policy.execution_backend,
             task_hashes={task.id: task.sha256 for task in tasks},
             n_tasks=len(tasks),
             n_trials_per_task=self.policy.trials,
@@ -889,6 +915,10 @@ class Evaluator:
             run_id=self.run_id,
             entity_type="candidate",
             entity_id=candidate.candidate_id,
+            idempotency_key=(
+                f"{self.phase}:{evaluation.policy_id}:"
+                f"{candidate.candidate_id}:benchmarked"
+            ),
             payload={
                 "candidate_name": candidate.name,
                 "policy_id": evaluation.policy_id,

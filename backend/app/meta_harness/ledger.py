@@ -9,7 +9,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.meta_harness.artifacts import atomic_write_bytes, canonical_json_bytes
+from app.meta_harness.artifacts import (
+    _fsync_directory,
+    atomic_write_bytes,
+    canonical_json_bytes,
+)
 from app.meta_harness.contracts import ArtifactRef, LedgerEvent
 
 MAX_EVENT_BYTES = 256 * 1024
@@ -44,6 +48,19 @@ def ledger_path(run_dir: Path) -> Path:
     return run_dir / "events.jsonl"
 
 
+def _find_event(path: Path, event_id: str) -> LedgerEvent | None:
+    if not path.exists():
+        return None
+    with path.open("rb") as handle:
+        for line in handle:
+            if event_id.encode() not in line:
+                continue
+            event = LedgerEvent.model_validate_json(line)
+            if event.event_id == event_id:
+                return event
+    return None
+
+
 def append_event(
     run_dir: Path,
     *,
@@ -53,17 +70,27 @@ def append_event(
     entity_id: str,
     thread_id: str | None = None,
     attempt_id: str | None = None,
+    idempotency_key: str | None = None,
     payload: dict[str, Any] | None = None,
     artifact_refs: list[ArtifactRef] | None = None,
 ) -> LedgerEvent:
+    event_id = (
+        "evt_" + uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"meta-harness:{run_id}:{idempotency_key}",
+        ).hex
+        if idempotency_key
+        else f"evt_{uuid.uuid4().hex}"
+    )
     event = LedgerEvent(
-        event_id=f"evt_{uuid.uuid4().hex}",
+        event_id=event_id,
         event_type=event_type,
         run_id=run_id,
         entity_type=entity_type,
         entity_id=entity_id,
         thread_id=thread_id,
         attempt_id=attempt_id,
+        idempotency_key=idempotency_key,
         payload=payload or {},
         artifact_refs=artifact_refs or [],
     )
@@ -75,12 +102,29 @@ def append_event(
     with _LOCK:
         descriptor = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o644)
         try:
+            try:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+            except ImportError:
+                pass
+            if idempotency_key:
+                existing = _find_event(path, event.event_id)
+                if existing is not None:
+                    return existing
             written = os.write(descriptor, encoded)
             if written != len(encoded):
                 raise OSError("short ledger write")
             os.fsync(descriptor)
         finally:
+            try:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except ImportError:
+                pass
             os.close(descriptor)
+        _fsync_directory(path.parent)
     return event
 
 

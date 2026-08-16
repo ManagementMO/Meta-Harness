@@ -124,8 +124,10 @@ Write to `runs/{run_id}/pending_eval.json`:
 }
 ```
 
-`class_name` must match the class defined in `source_path`. The runtime copies
-that source into a content-verified candidate directory before validation.
+`class_name` must match the class defined in `source_path`. The proposal path is
+mutable staging only: before validation, the runtime copies and hashes those exact
+bytes into `runs/{run_id}/candidates/{candidate_id}/source/harness.py`. All
+evaluation and later parent selection use that immutable candidate artifact.
 
 ## Interface contract
 

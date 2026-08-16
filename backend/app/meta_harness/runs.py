@@ -1,16 +1,22 @@
 """Run filesystem lifecycle: ``runs/{run_id}/`` layout + helpers.
 
-Layout (per Appendix C §C.10 + INTERFACES.md §2):
+Layout:
     runs/{run_id}/
-    ├── manifest.json                 # run config
-    ├── pending_eval.json             # proposer→benchmark handoff (current iter)
-    ├── frontier_val.json             # current Pareto frontier
-    ├── evolution_summary.jsonl       # append-only candidate log
-    ├── agents/                       # proposer-written candidate files
-    ├── candidates/{name}/
+    ├── manifest.json
+    ├── pending_eval.json
+    ├── frontier_val.json
+    ├── evolution_summary.jsonl
+    ├── events.jsonl
+    ├── proposals/iter-{N}/{name}.py
+    ├── candidates/{candidate_id}/
+    │   ├── candidate.json
+    │   ├── source/harness.py
     │   ├── eval-result.json
     │   ├── status.json
     │   └── traces/{task-id}-trial-{N}/...
+    ├── artifacts/sha256/{prefix}/{digest}
+    ├── branches/{branch_id}/...
+    ├── refinements/{refinement_id}.json
     └── proposer-sessions/iter-{N}/
 """
 

@@ -8,12 +8,14 @@ from typing import Any
 
 from app.meta_harness.artifacts import atomic_write_json, sha256_file
 from app.meta_harness.candidates import (
+    candidate_search_roots,
     locate_candidate,
     mirror_candidate_artifact,
     resolve_candidate_id,
 )
 from app.meta_harness.contracts import EvaluationPolicy, RunMode, utc_now
 from app.meta_harness.evaluator import Evaluator
+from app.meta_harness.ledger import read_events
 from app.meta_harness.runtime import discover_tasks
 
 
@@ -220,9 +222,13 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
             branch_frontier = json.loads(branch_frontier_path.read_text())
             frontier_ids.extend(branch_frontier.get("_pareto_ids", []))
     frontier_ids = list(dict.fromkeys(frontier_ids))
+    candidate_ids = list(
+        dict.fromkeys(row.get("candidate_id") for row in rows if row.get("candidate_id"))
+    )
+    evaluation_ids = list(dict.fromkeys([*candidate_ids, *frontier_ids]))
     candidate_results: dict[str, dict[str, Any]] = {}
     candidate_locations: dict[str, str] = {}
-    for candidate_id in frontier_ids:
+    for candidate_id in evaluation_ids:
         artifact_root, _resolved_id = locate_candidate(run_dir, candidate_id)
         result_path = artifact_root / "candidates" / candidate_id / "eval-result.json"
         candidate_locations[candidate_id] = str(
@@ -232,6 +238,17 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
             candidate_results[candidate_id] = _compact_result(
                 json.loads(result_path.read_text())
             )
+    tool_call_counts: dict[str, dict[str, int]] = {}
+    for evidence_root in candidate_search_roots(run_dir):
+        for event in read_events(evidence_root):
+            if event.event_type != "ToolCallCompleted":
+                continue
+            candidate_id = str(event.payload.get("candidate_id") or "")
+            tool_name = str(event.payload.get("tool_name") or "unknown")
+            if not candidate_id:
+                continue
+            per_candidate = tool_call_counts.setdefault(candidate_id, {})
+            per_candidate[tool_name] = per_candidate.get(tool_name, 0) + 1
     global_best_candidate_id = max(
         candidate_results,
         key=lambda candidate_id: float(
@@ -239,6 +256,119 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
         ),
         default=manifest.get("best_candidate_id"),
     )
+
+    def usage_value(result: dict[str, Any], metric: str) -> float | None:
+        value = ((result.get("usage") or {}).get(metric) or {}).get("value")
+        return float(value) if isinstance(value, int | float) else None
+
+    proposer_sessions = []
+    for session_path in sorted(run_dir.glob("proposer-sessions/iter-*/session.json")):
+        proposer_sessions.append(json.loads(session_path.read_text()))
+    if branches_root.exists():
+        for session_path in sorted(
+            branches_root.glob("*/proposer-sessions/iter-*/session.json")
+        ):
+            proposer_sessions.append(json.loads(session_path.read_text()))
+    candidate_generation_seconds = sum(
+        float(session.get("duration_seconds") or 0.0)
+        for session in proposer_sessions
+    )
+    total_tokens_values = [
+        (usage_value(result, "input_tokens"), usage_value(result, "output_tokens"))
+        for result in candidate_results.values()
+    ]
+    total_tokens = (
+        sum(
+            (input_tokens or 0.0) + (output_tokens or 0.0)
+            for input_tokens, output_tokens in total_tokens_values
+        )
+        if total_tokens_values
+        and all(
+            input_tokens is not None and output_tokens is not None
+            for input_tokens, output_tokens in total_tokens_values
+        )
+        else None
+    )
+    billed_cost_values = [
+        usage_value(result, "billed_cost_usd")
+        for result in candidate_results.values()
+    ]
+    total_billed_cost = (
+        sum(value for value in billed_cost_values if value is not None)
+        if billed_cost_values and all(value is not None for value in billed_cost_values)
+        else None
+    )
+    evaluation_wall_values = [
+        usage_value(result, "wall_seconds") for result in candidate_results.values()
+    ]
+    total_wall_seconds = (
+        candidate_generation_seconds
+        + sum(value for value in evaluation_wall_values if value is not None)
+        if evaluation_wall_values
+        and all(value is not None for value in evaluation_wall_values)
+        else None
+    )
+    try:
+        baseline_id = resolve_candidate_id(run_dir, "baseline")
+    except (KeyError, ValueError):
+        baseline_id = None
+    baseline_accuracy = (
+        candidate_results.get(baseline_id, {}).get("accuracy_value")
+        if baseline_id
+        else None
+    )
+    best_accuracy = candidate_results.get(global_best_candidate_id, {}).get(
+        "accuracy_value"
+    )
+    improvement = (
+        float(best_accuracy) - float(baseline_accuracy)
+        if best_accuracy is not None and baseline_accuracy is not None
+        else None
+    )
+    candidate_denominator = max(1, len(candidate_ids) - (1 if baseline_id else 0))
+    search_efficiency = {
+        "measurement_status": (
+            "synthetic"
+            if manifest.get("synthetic", False)
+            else ("measured" if improvement is not None else "unknown")
+        ),
+        "token_measurement_status": (
+            "synthetic"
+            if manifest.get("synthetic", False) and total_tokens is not None
+            else ("measured" if total_tokens is not None else "unknown")
+        ),
+        "cost_measurement_status": (
+            "measured" if total_billed_cost is not None else "unknown"
+        ),
+        "wall_measurement_status": (
+            "synthetic"
+            if manifest.get("synthetic", False) and total_wall_seconds is not None
+            else ("measured" if total_wall_seconds is not None else "unknown")
+        ),
+        "accuracy_improvement": improvement,
+        "improvement_per_candidate": (
+            improvement / candidate_denominator if improvement is not None else None
+        ),
+        "improvement_per_1k_tokens": (
+            improvement / (total_tokens / 1000.0)
+            if improvement is not None and total_tokens
+            else None
+        ),
+        "improvement_per_dollar": (
+            improvement / total_billed_cost
+            if improvement is not None and total_billed_cost
+            else None
+        ),
+        "improvement_per_wall_hour": (
+            improvement / (total_wall_seconds / 3600.0)
+            if improvement is not None and total_wall_seconds
+            else None
+        ),
+        "candidate_generation_seconds": candidate_generation_seconds,
+        "total_tokens": total_tokens,
+        "total_billed_cost_usd": total_billed_cost,
+        "total_wall_seconds": total_wall_seconds,
+    }
     return {
         "schema_version": 1,
         "run_id": manifest.get("run_id", run_dir.name),
@@ -249,16 +379,23 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
         "mode": manifest.get("mode"),
         "policy": manifest.get("policy"),
         "parent_policy": manifest.get("parent_policy"),
+        "artifact_retention": manifest.get("artifact_retention"),
         "search_budget": manifest.get("budget"),
         "synthetic": manifest.get("synthetic", False),
-        "candidate_ids": list(
-            dict.fromkeys(row.get("candidate_id") for row in rows if row.get("candidate_id"))
-        ),
+        "candidate_ids": candidate_ids,
+        "archive_size": len(candidate_ids),
         "frontier_ids": frontier_ids,
+        "frontier_size": len(frontier_ids),
         "best_candidate_id": manifest.get("best_candidate_id"),
         "global_best_candidate_id": global_best_candidate_id,
         "candidate_locations": candidate_locations,
         "results": candidate_results,
-        "human_intervention": False,
+        "tool_call_counts": tool_call_counts,
+        "search_efficiency": search_efficiency,
+        "proposer_evidence_access": manifest.get("proposer_evidence_access", []),
+        "recursive_children_enabled": bool(
+            (manifest.get("policy") or {}).get("allow_recursive_children", False)
+        ),
+        "human_intervention": manifest.get("human_intervention", False),
         "generated_at": utc_now(),
     }

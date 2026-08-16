@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -15,9 +17,11 @@ from app.meta_harness.candidates import (
     mirror_candidate_artifact,
 )
 from app.meta_harness.contracts import (
+    ComponentKind,
     EvaluationPolicy,
     MeasurementStatus,
     MetricValue,
+    PendingEvaluation,
     Provenance,
 )
 
@@ -62,6 +66,51 @@ def test_synthetic_measurement_is_explicit() -> None:
     assert metric.status == MeasurementStatus.SYNTHETIC
 
 
+def test_pending_evaluation_contract_rejects_unresolvable_candidates() -> None:
+    with pytest.raises(ValidationError, match="source_path or import_path"):
+        PendingEvaluation.model_validate(
+            {
+                "iteration": 1,
+                "candidates": [
+                    {
+                        "name": "missing-source",
+                        "class_name": "MissingSourceHarness",
+                    }
+                ],
+            }
+        )
+
+
+def test_candidate_components_are_typed_and_hashed(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    run_dir = repo_root / "runs" / "run-a"
+    run_dir.mkdir(parents=True)
+    source = _candidate_source(repo_root)
+    digest = "a" * 64
+    artifact = materialize_candidate(
+        run_dir=run_dir,
+        repo_root=repo_root,
+        metadata={
+            "name": "candidate-a",
+            "source_path": str(source.relative_to(repo_root)),
+            "class_name": "CandidateHarness",
+        },
+        parent_ids=[],
+        policy=_policy(),
+        provenance=_provenance(),
+        components={
+            "prompts": ["prompt.default.v1"],
+            "skills": [f"skill.coding-agent.v2:{digest}"],
+        },
+    )
+
+    assert [component.kind for component in artifact.components] == [
+        ComponentKind.PROMPT,
+        ComponentKind.SKILL,
+    ]
+    assert artifact.components[1].sha256 == digest
+
+
 def test_runtime_fingerprint_changes_candidate_identity(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     run_dir = repo_root / "runs" / "run-a"
@@ -99,6 +148,38 @@ def test_runtime_fingerprint_changes_candidate_identity(tmp_path: Path) -> None:
         ),
     )
     assert first.candidate_id != second.candidate_id
+
+
+def test_concurrent_materialization_publishes_one_candidate(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    run_dir = repo_root / "runs" / "run-a"
+    run_dir.mkdir(parents=True)
+    source = _candidate_source(repo_root)
+    metadata = {
+        "name": "candidate-a",
+        "source_path": str(source.relative_to(repo_root)),
+        "class_name": "CandidateHarness",
+    }
+
+    def materialize() -> CandidateArtifact:
+        return materialize_candidate(
+            run_dir=run_dir,
+            repo_root=repo_root,
+            metadata=metadata,
+            parent_ids=[],
+            policy=_policy(),
+            provenance=_provenance(),
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        artifacts = list(pool.map(lambda _index: materialize(), range(8)))
+
+    candidate_ids = {artifact.candidate_id for artifact in artifacts}
+    assert len(candidate_ids) == 1
+    candidate_id = candidate_ids.pop()
+    index = json.loads((run_dir / "candidates" / "index.json").read_text())
+    assert index["candidate_ids"] == [candidate_id]
+    load_candidate_artifact(run_dir, candidate_id)
 
 
 def test_candidate_source_is_immutable_after_materialization(tmp_path: Path) -> None:

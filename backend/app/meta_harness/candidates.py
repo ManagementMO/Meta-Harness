@@ -6,14 +6,17 @@ import ast
 import importlib.util
 import inspect
 import json
+import os
 import re
 import sys
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Iterator
 
 from app.meta_harness.artifacts import (
-    atomic_write_bytes,
+    atomic_create_bytes,
     atomic_write_json,
     canonical_json_bytes,
     sha256_bytes,
@@ -21,7 +24,9 @@ from app.meta_harness.artifacts import (
 )
 from app.meta_harness.contracts import (
     CandidateArtifact,
+    ComponentKind,
     EvaluationPolicy,
+    HarnessComponentRef,
     Provenance,
     SourceArtifact,
 )
@@ -29,6 +34,31 @@ from app.meta_harness.harness import CodingAgentHarness
 from app.meta_harness.runs import validate_artifact_name
 
 _CANDIDATE_ID_RE = re.compile(r"^cand_[0-9a-f]{16}$")
+_PROCESS_WRITE_LOCK = threading.RLock()
+
+
+@contextmanager
+def _candidate_write_lock(run_dir: Path) -> Iterator[None]:
+    lock_path = run_dir / "candidates" / ".write.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    with _PROCESS_WRITE_LOCK:
+        try:
+            try:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+            except ImportError:
+                pass
+            yield
+        finally:
+            try:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except ImportError:
+                pass
+            os.close(descriptor)
 
 
 def _contained_path(roots: list[Path], path: Path) -> Path:
@@ -80,6 +110,54 @@ def resolve_candidate_source(
     return source, str(class_name), str(import_path) if import_path else None
 
 
+_COMPONENT_KIND_BY_GROUP = {
+    "prompts": ComponentKind.PROMPT,
+    "skills": ComponentKind.SKILL,
+    "memories": ComponentKind.MEMORY,
+    "subagents": ComponentKind.SUBAGENT,
+    "control_flow": ComponentKind.CONTROL_FLOW,
+    "tool_interfaces": ComponentKind.TOOL_INTERFACE,
+}
+
+
+def _normalize_components(
+    components: dict[str, list[str]] | list[HarnessComponentRef] | None,
+) -> list[HarnessComponentRef]:
+    if components is None:
+        return []
+    if isinstance(components, list):
+        normalized = [HarnessComponentRef.model_validate(value) for value in components]
+    else:
+        normalized = []
+        for group, values in components.items():
+            kind = _COMPONENT_KIND_BY_GROUP.get(group)
+            if kind is None:
+                raise ValueError(f"unknown harness component group: {group}")
+            for value in values:
+                component_id = str(value)
+                digest = None
+                match = re.search(r":([0-9a-f]{64})$", component_id)
+                if match:
+                    digest = match.group(1)
+                    component_id = component_id[: match.start()]
+                normalized.append(
+                    HarnessComponentRef(
+                        component_id=component_id,
+                        kind=kind,
+                        sha256=digest,
+                    )
+                )
+    return sorted(
+        normalized,
+        key=lambda component: (
+            component.kind.value,
+            component.component_id,
+            component.version or "",
+            component.sha256 or "",
+        ),
+    )
+
+
 def _candidate_identity(
     *,
     source_sha256: str,
@@ -87,7 +165,7 @@ def _candidate_identity(
     parent_ids: list[str],
     policy: EvaluationPolicy,
     provenance: Provenance,
-    components: dict[str, list[str]],
+    components: list[HarnessComponentRef],
 ) -> str:
     identity = {
         "source_sha256": source_sha256,
@@ -97,7 +175,9 @@ def _candidate_identity(
         "inner_model": policy.inner_model,
         "model_provider": policy.model_provider,
         "evaluation_policy_id": policy.policy_id,
-        "components": components,
+        "components": [
+            component.model_dump(mode="json") for component in components
+        ],
         "git_commit": provenance.git_commit,
         "runtime_sha256": provenance.runtime_sha256,
         "dependency_lock_sha256": provenance.dependency_lock_sha256,
@@ -125,7 +205,7 @@ def materialize_candidate(
     parent_ids: list[str],
     policy: EvaluationPolicy,
     provenance: Provenance,
-    components: dict[str, list[str]] | None = None,
+    components: dict[str, list[str]] | list[HarnessComponentRef] | None = None,
 ) -> CandidateArtifact:
     name = validate_artifact_name(str(metadata["name"]), kind="candidate")
     source_path, class_name, _import_path = resolve_candidate_source(
@@ -135,23 +215,18 @@ def materialize_candidate(
     )
     source_bytes = source_path.read_bytes()
     source_sha256 = sha256_bytes(source_bytes)
-    component_map = components or {}
+    component_refs = _normalize_components(components)
     candidate_id = _candidate_identity(
         source_sha256=source_sha256,
         class_name=class_name,
         parent_ids=parent_ids,
         policy=policy,
         provenance=provenance,
-        components=component_map,
+        components=component_refs,
     )
     root = candidate_dir(run_dir, candidate_id)
     relative_source = Path("candidates") / candidate_id / "source" / "harness.py"
     immutable_source = run_dir / relative_source
-    if immutable_source.exists():
-        if sha256_file(immutable_source) != source_sha256:
-            raise ValueError(f"candidate source collision for {candidate_id}")
-    else:
-        atomic_write_bytes(immutable_source, source_bytes)
     artifact = CandidateArtifact(
         candidate_id=candidate_id,
         name=name,
@@ -166,23 +241,30 @@ def materialize_candidate(
         ),
         inner_model=policy.inner_model,
         model_provider=policy.model_provider,
-        components=component_map,
+        components=component_refs,
         evaluation_policy_id=policy.policy_id,
         provenance=provenance,
     )
     manifest_path = root / "candidate.json"
-    if manifest_path.exists():
-        existing = CandidateArtifact.model_validate_json(manifest_path.read_text())
-        if existing.candidate_id != artifact.candidate_id:
-            raise ValueError(f"candidate manifest collision for {candidate_id}")
-        artifact = existing
-    else:
-        atomic_write_json(manifest_path, artifact)
-    _update_index(run_dir, artifact)
+    with _candidate_write_lock(run_dir):
+        created = atomic_create_bytes(immutable_source, source_bytes)
+        if not created and sha256_file(immutable_source) != source_sha256:
+            raise ValueError(f"candidate source collision for {candidate_id}")
+        if manifest_path.exists():
+            existing = CandidateArtifact.model_validate_json(manifest_path.read_text())
+            if existing.candidate_id != artifact.candidate_id:
+                raise ValueError(f"candidate manifest collision for {candidate_id}")
+            artifact = existing
+        else:
+            atomic_write_json(manifest_path, artifact)
+        _update_index(run_dir, artifact)
     return artifact
 
 
 def _update_index(run_dir: Path, artifact: CandidateArtifact) -> None:
+    manifest_path = candidate_dir(run_dir, artifact.candidate_id) / "candidate.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(manifest_path)
     path = run_dir / "candidates" / "index.json"
     if path.exists():
         value = json.loads(path.read_text())
@@ -275,10 +357,9 @@ def load_candidate_module(
     repo_root: Path,
 ) -> ModuleType:
     verified = load_candidate_artifact(run_dir, artifact.candidate_id)
+    del repo_root
     source_path = run_dir / verified.source.artifact_path
     module_name = f"_meta_harness_candidate_{verified.candidate_id}"
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
     sys.modules.pop(module_name, None)
     spec = importlib.util.spec_from_file_location(module_name, source_path)
     if spec is None or spec.loader is None:
@@ -393,19 +474,20 @@ def mirror_candidate_artifact(
         return artifact
     source_path = source_run_dir / artifact.source.artifact_path
     destination_source = destination_run_dir / artifact.source.artifact_path
-    if destination_source.exists():
-        if sha256_file(destination_source) != artifact.source.sha256:
-            raise ValueError(f"candidate mirror collision: {candidate_id}")
-    else:
-        atomic_write_bytes(destination_source, source_path.read_bytes())
     destination_manifest = candidate_dir(destination_run_dir, candidate_id) / "candidate.json"
-    if destination_manifest.exists():
-        existing = CandidateArtifact.model_validate_json(destination_manifest.read_text())
-        if existing != artifact:
-            raise ValueError(f"candidate manifest mirror collision: {candidate_id}")
-    else:
-        atomic_write_json(destination_manifest, artifact)
-    _update_index(destination_run_dir, artifact)
+    with _candidate_write_lock(destination_run_dir):
+        created = atomic_create_bytes(destination_source, source_path.read_bytes())
+        if not created and sha256_file(destination_source) != artifact.source.sha256:
+            raise ValueError(f"candidate mirror collision: {candidate_id}")
+        if destination_manifest.exists():
+            existing = CandidateArtifact.model_validate_json(
+                destination_manifest.read_text()
+            )
+            if existing != artifact:
+                raise ValueError(f"candidate manifest mirror collision: {candidate_id}")
+        else:
+            atomic_write_json(destination_manifest, artifact)
+        _update_index(destination_run_dir, artifact)
     return artifact
 
 

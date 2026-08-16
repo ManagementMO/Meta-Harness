@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getCandidateManifest, getEvidenceEvents, getRunReport } from "@/lib/api";
+import { artifactUrl, getCandidateManifest, getEvidenceEvents, getRunReport } from "@/lib/api";
 import { useDashboard } from "@/lib/state";
 import { cn } from "@/lib/cn";
-import { IconFingerprint, IconShieldCheck, IconStack } from "./ui/icons";
+import { IconCpu, IconFingerprint, IconShieldCheck, IconStack } from "./ui/icons";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -13,6 +13,13 @@ function record(value: unknown): Record<string, unknown> {
 
 function text(value: unknown, fallback = "unknown"): string {
   return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function metric(value: unknown): string {
+  const parsed = record(value);
+  const measured = parsed.value;
+  const status = text(parsed.status);
+  return `${measured === null || measured === undefined ? "unknown" : String(measured)} · ${status}`;
 }
 
 function EvidenceSection({
@@ -78,7 +85,7 @@ export function EvidencePanel() {
     Promise.all([
       selected ? getCandidateManifest(params.run_id, selected) : Promise.resolve(null),
       getRunReport(params.run_id),
-      getEvidenceEvents(params.run_id),
+      getEvidenceEvents(params.run_id, selected ?? undefined),
     ])
       .then(([candidateManifest, runReport, evidenceEvents]) => {
         if (cancelled) return;
@@ -138,6 +145,12 @@ export function EvidencePanel() {
   const source = record(manifest?.source);
   const provenance = record(manifest?.provenance);
   const policy = record(report?.policy);
+  const results = record(report?.results);
+  const selectedResult = record(results[String(manifest?.candidate_id ?? "")]);
+  const usage = record(selectedResult.usage);
+  const failureCategories = Array.isArray(selectedResult.failure_categories)
+    ? selectedResult.failure_categories.map((value) => String(value))
+    : [];
   const candidateEvents = events.filter((value) => {
     const event = record(value);
     return (
@@ -149,6 +162,17 @@ export function EvidencePanel() {
     const event = record(value);
     return text(event.event_type, "") === "TaskAttemptFinished" && record(event.payload).passed === false;
   });
+  const artifactRefs = Array.from(
+    new Map(
+      candidateEvents
+        .flatMap((value) => {
+          const refs = record(value).artifact_refs;
+          return Array.isArray(refs) ? refs.map(record) : [];
+        })
+        .filter((ref) => typeof ref.sha256 === "string")
+        .map((ref) => [String(ref.sha256), ref] as const),
+    ).values(),
+  );
 
   return (
     <div className="space-y-3">
@@ -174,12 +198,58 @@ export function EvidencePanel() {
         <Row label="Sandbox" value={text(policy.sandbox_profile)} />
         <Row label="Parent policy" value={text(report?.parent_policy)} />
       </EvidenceSection>
+      <EvidenceSection title="Usage and failures" icon={<IconCpu size={12} />}>
+        <Row label="Input tokens" value={metric(usage.input_tokens)} />
+        <Row label="Output tokens" value={metric(usage.output_tokens)} />
+        <Row label="Cached tokens" value={metric(usage.cached_tokens)} />
+        <Row label="Model calls" value={metric(usage.model_calls)} />
+        <Row label="Tool calls" value={metric(usage.tool_calls)} />
+        <Row label="Verify retries" value={metric(usage.verification_retries)} />
+        <Row label="Wall seconds" value={metric(usage.wall_seconds)} />
+        <Row
+          label="Failure count"
+          value={String(selectedResult.failure_count ?? 0)}
+          tone={Number(selectedResult.failure_count ?? 0) > 0 ? "ember" : "moss"}
+        />
+        <Row label="Categories" value={failureCategories.join(", ") || "none"} />
+      </EvidenceSection>
       <EvidenceSection title="Evidence summary" icon={<IconStack size={12} />}>
         <Row label="Candidate events" value={candidateEvents.length} />
         <Row label="Failed attempts" value={failures.length} tone={failures.length > 0 ? "ember" : "moss"} />
-        <Row label="Raw artifacts" value="content-addressed" />
+        <Row label="Raw artifacts" value={`${artifactRefs.length} content-addressed`} />
         <Row label="Rollback" value="refinement events enabled" />
       </EvidenceSection>
+      <section className="glass-inset rounded-[var(--radius-card)] px-3.5 py-3">
+        <h3 className="flex items-center gap-2 text-label uppercase text-ink-mid">
+          <span className="text-ink-low">
+            <IconStack size={12} />
+          </span>
+          Artifact links
+        </h3>
+        {artifactRefs.length > 0 ? (
+          <ul className="mt-2.5 space-y-1 font-mono text-[11px] leading-[1.5]">
+            {artifactRefs.slice(0, 12).map((ref) => {
+              const digest = String(ref.sha256);
+              return (
+                <li key={digest} className="truncate">
+                  <a
+                    className="text-frost-dim underline underline-offset-2 decoration-white/25 hover:text-frost-bright transition-colors duration-150"
+                    href={artifactUrl(params.run_id, digest)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {digest.slice(0, 16)} · {text(ref.media_type, "artifact")}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="mt-2.5 font-mono text-[11px] leading-[1.5] text-ink-low">
+            Run a candidate evaluation to produce downloadable evidence artifacts.
+          </p>
+        )}
+      </section>
       {!selected && (
         <p className="font-mono text-[11px] leading-[1.55] text-ink-low px-1">
           Select a candidate in the trajectory to inspect its provenance.

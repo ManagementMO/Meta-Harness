@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('live dashboard renders immutable provenance from FastAPI', async ({ page, request }) => {
   const runId = `playwright-live-${Date.now()}`;
-  const created = await request.post('http://127.0.0.1:8000/runs', {
+  const created = await request.post('http://127.0.0.1:8100/runs', {
     data: {
       run_name: runId,
       proposer: 'mock',
@@ -18,7 +18,7 @@ test('live dashboard renders immutable provenance from FastAPI', async ({ page, 
 
   try {
     await expect.poll(async () => {
-      const response = await request.get(`http://127.0.0.1:8000/runs/${runId}`);
+      const response = await request.get(`http://127.0.0.1:8100/runs/${runId}`);
       return (await response.json()).status;
     }).toBe('completed');
 
@@ -30,15 +30,26 @@ test('live dashboard renders immutable provenance from FastAPI', async ({ page, 
     await page.getByRole('button', { name: /evidence/i }).click();
     await expect(page.getByText('Candidate identity')).toBeVisible();
     await expect(page.getByText('Evaluation contract')).toBeVisible();
-    await expect(page.getByText('content-addressed')).toBeVisible();
+    await expect(page.getByText('Usage and failures')).toBeVisible();
+    await expect(page.getByText(/content-addressed/)).toBeVisible();
     await expect(page.getByText(/cand_[0-9a-f]{16}/).first()).toBeVisible();
+    const artifactLink = page
+      .getByRole('heading', { name: 'Artifact links' })
+      .locator('..')
+      .getByRole('link')
+      .first();
+    await expect(artifactLink).toBeVisible();
+    const artifactHref = await artifactLink.getAttribute('href');
+    expect(artifactHref).toMatch(/\/artifacts\/[0-9a-f]{64}$/);
+    const artifact = await request.get(`http://127.0.0.1:3100${artifactHref}`);
+    expect(artifact.status()).toBe(200);
 
-    const report = await request.get(`http://127.0.0.1:8000/runs/${runId}/report`);
+    const report = await request.get(`http://127.0.0.1:8100/runs/${runId}/report`);
     expect(report.status()).toBe(200);
     const reportBody = await report.json();
     expect(reportBody.synthetic).toBe(true);
     expect(reportBody.frontier_ids.length).toBeGreaterThan(0);
   } finally {
-    await request.delete(`http://127.0.0.1:8000/runs/${runId}`);
+    await request.delete(`http://127.0.0.1:8100/runs/${runId}`);
   }
 });

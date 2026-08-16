@@ -13,8 +13,9 @@ As of 2026-04-26, the codebase has the intended frontend/backend integration
 points in place, but the current local workspace should not be treated as fully
 green.
 
-- The dashboard is wired to the backend through `NEXT_PUBLIC_API_BASE_URL`,
-  defaulting to `http://localhost:8000`.
+- The dashboard uses same-origin `/api` by default, proxied by Next.js to
+  `META_HARNESS_BACKEND_URL` (default `http://127.0.0.1:8000`); deployments can
+  still set `NEXT_PUBLIC_API_BASE_URL` for an explicit public API origin.
 - The frontend calls the FastAPI REST API for health, run listing, run detail,
   checkpoints, forks, and memory.
 - Live updates are wired through SSE via `GET /runs/{run_id}/stream`.

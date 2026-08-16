@@ -28,6 +28,35 @@ class RunMode(str, Enum):
     AUTONOMOUS = "autonomous"
 
 
+class ProposalCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    source_path: str | None = None
+    class_name: str | None = None
+    import_path: str | None = None
+    parent: str | None = None
+    hypothesis: str = ""
+    axis: Literal["exploration", "exploitation"] = "exploration"
+    expected_score_delta: float | None = Field(default=None, ge=-1.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "ProposalCandidate":
+        if not self.source_path and not self.import_path:
+            raise ValueError("proposal requires source_path or import_path")
+        if self.source_path and not self.class_name and not self.import_path:
+            raise ValueError("source_path proposals require class_name")
+        return self
+
+
+class PendingEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = SCHEMA_VERSION
+    iteration: int = Field(ge=1)
+    candidates: list[ProposalCandidate] = Field(min_length=1)
+
+
 class CandidateStatus(str, Enum):
     MATERIALIZED = "materialized"
     INVALID = "invalid"
@@ -168,6 +197,25 @@ class SourceArtifact(ArtifactRef):
     kind: Literal["python_module"] = "python_module"
 
 
+class ComponentKind(str, Enum):
+    PROMPT = "prompt"
+    SKILL = "skill"
+    MEMORY = "memory"
+    SUBAGENT = "subagent"
+    CONTROL_FLOW = "control_flow"
+    TOOL_INTERFACE = "tool_interface"
+
+
+class HarnessComponentRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    component_id: str
+    kind: ComponentKind
+    version: str | None = None
+    sha256: str | None = None
+    scope: Literal["attempt", "run", "project", "global"] = "run"
+
+
 class Provenance(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -212,7 +260,7 @@ class CandidateArtifact(BaseModel):
     harness_api_version: int = HARNESS_API_VERSION
     inner_model: str
     model_provider: str = "anthropic"
-    components: dict[str, list[str]] = Field(default_factory=dict)
+    components: list[HarnessComponentRef] = Field(default_factory=list)
     evaluation_policy_id: str
     provenance: Provenance
     created_at: str = Field(default_factory=utc_now)
@@ -296,6 +344,10 @@ class CandidateEvaluation(BaseModel):
     candidate_name: str
     candidate_manifest_sha256: str
     policy_id: str
+    evaluator_version: str
+    sandbox_profile: str
+    runtime_adapter: str
+    execution_backend: str
     task_hashes: dict[str, str]
     n_tasks: int
     n_trials_per_task: int
@@ -307,6 +359,16 @@ class CandidateEvaluation(BaseModel):
     synthetic: bool = False
     started_at: str
     finished_at: str
+
+
+class ArtifactRetentionPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    keep_candidate_source: bool = True
+    keep_evaluation_results: bool = True
+    keep_raw_traces: bool = True
+    keep_content_addressed_artifacts: bool = True
+    cleanup_mode: Literal["manual", "never"] = "manual"
 
 
 class RunManifest(BaseModel):
@@ -325,6 +387,9 @@ class RunManifest(BaseModel):
     search_task_ids: list[str]
     holdout_visible: bool = False
     persistence_backend: str
+    artifact_retention: ArtifactRetentionPolicy = Field(
+        default_factory=ArtifactRetentionPolicy
+    )
     synthetic: bool = False
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
@@ -341,6 +406,7 @@ class LedgerEvent(BaseModel):
     entity_id: str
     thread_id: str | None = None
     attempt_id: str | None = None
+    idempotency_key: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     artifact_refs: list[ArtifactRef] = Field(default_factory=list)
     created_at: str = Field(default_factory=utc_now)

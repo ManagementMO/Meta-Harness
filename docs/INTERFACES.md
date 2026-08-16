@@ -59,31 +59,27 @@ class CodingAgentState(TypedDict):
     score: float | None                         # 0.0 or 1.0 (per-trial pytest pass)
 ```
 
-### 1.3 `Candidate` — element of `MetaHarnessState.candidates`
+### 1.3 `CandidateRecord` — serialized at the LangGraph boundary
 
-*Locked. Synthesized from the union of fields used in pending_eval.json
-(proposer-written), the validate/benchmark/update_frontier nodes
-(graph-enriched), and the trace structure (Appendix C §C.10).*
+The authoritative model is Pydantic-backed in `contracts.py`; LangGraph state
+stores its JSON-compatible representation.
 
 ```python
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Literal
-
-@dataclass
-class Candidate:
-    name: str                       # e.g. "few_shot_tool_results"
-    import_path: str                # e.g. "agents.few_shot_tool_results:CodingAgentHarness"
-    parent: str | None              # parent candidate name; None for baseline
-    hypothesis: str                 # falsifiable claim from the proposer
+class CandidateRecord(BaseModel):
+    candidate_id: str
+    name: str
+    artifact_path: str              # candidates/{candidate_id}/candidate.json
+    parent_ids: list[str]
+    parent: str | None              # display-only compatibility projection
+    hypothesis: str
     axis: Literal["exploration", "exploitation"]
     expected_score_delta: float | None
-    iteration: int                  # outer-loop iteration that produced it
-    traces_dir: Path                # runs/{run_id}/candidates/{name}/traces/ — created at propose-time, populated at benchmark-time, never None
-    status: Literal["pending", "smoke_failed", "evaluated", "rejected", "accepted"]
-    scores: dict | None             # eval-result.json content; None until benchmark
-    delta: float | None             # score - parent.score; None until update_frontier
+    iteration: int
+    status: CandidateStatus
+    scores: dict | None             # compact aggregate; raw results remain artifacts
+    delta: float | None
     cost_usd: float | None
+    validation_error: str | None
 ```
 
 ---
@@ -96,17 +92,19 @@ filesystem-first convention (Appendix B §B.2).
 
 ### 2.1 `pending_eval.json` — proposer→outer-graph handoff
 
-*Verbatim from Appendix B §B.5.1.*
+Validated by `PendingEvaluation` and `ProposalCandidate` in `contracts.py`.
 
 ```json
 {
+  "schema_version": 1,
   "iteration": 3,
   "candidates": [
     {
       "name": "few-shot-tool-results",
-      "import_path": "agents.few_shot_tool_results:CodingAgentHarness",
+      "source_path": "runs/run-001/proposals/iter-3/few-shot-tool-results.py",
+      "class_name": "FewShotToolResultsHarness",
       "parent": "more-specific-descriptions",
-      "hypothesis": "Inlining 1 example tool result reduces patch-context misses",
+      "hypothesis": "Inlining one tool-result example reduces patch-context misses",
       "axis": "exploitation",
       "expected_score_delta": 0.04
     }
@@ -114,8 +112,9 @@ filesystem-first convention (Appendix B §B.2).
 }
 ```
 
-The proposer writes ONE candidate per iteration (TB2 convention; we are
-single-domain coding-agent). Class name is always `CodingAgentHarness`.
+The committed proposer skill emits one candidate per iteration. The outer
+contract supports populations for controlled ablations. `source_path` is staging
+only; materialization copies and hashes it into the immutable candidate bundle.
 
 ### 2.2 `frontier_val.json` — current Pareto frontier
 
@@ -605,11 +604,12 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 | `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25", "proposer": "claude", "mock_bench": false, "trials": 5, "workers": 3}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "current_iteration": 0}` | **201** |
 | `GET`  | `/runs` | — | `{"runs": [{"run_id", "thread_id", "status", "started_at", "current_iteration", "best_score"}]}` | 200 |
 | `GET`  | `/runs/{run_id}` | — | full `RunInfo` (run dir manifest + frontier_val + last few summary rows) | 200 |
-| `GET`  | `/runs/{run_id}/candidates/{candidate_name}/diff` | — | `{"candidate", "parent", "from_path", "to_path", "diff"}` where `diff` is unified diff text between parent and candidate source | 200 |
-| `GET`  | `/runs/{run_id}/candidates/{candidate_name}/test-output` | — | `{"candidate", "output"}` summarizing eval-result and available verify trace output | 200 |
-| `GET`  | `/runs/{run_id}/candidates/{candidate}/manifest` | — | Immutable `CandidateArtifact` with source hash, parent IDs, model/policy identity, and provenance | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_identifier}/diff` | — | `{"candidate", "parent", "from_path", "to_path", "diff"}` where `diff` is unified diff text between parent and candidate source | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_identifier}/test-output` | — | `{"candidate", "output"}` summarizing eval-result and available verify trace output | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_identifier}/manifest` | — | Immutable `CandidateArtifact` with source hash, parent IDs, model/policy identity, and provenance | 200 |
 | `GET`  | `/runs/{run_id}/report` | — | Compact reproducibility report with manifest, archive/frontier IDs, metrics, and failure summary | 200 |
-| `GET`  | `/runs/{run_id}/events` | — | Append-only evidence events | 200 |
+| `GET`  | `/runs/{run_id}/events` | optional event/entity/attempt/candidate/task/tool/failure/turn/time filters | Append-only evidence events from the run and branch ledgers | 200 |
+| `GET`  | `/runs/{run_id}/artifacts/{sha256}` | — | Verified content-addressed evidence bytes | 200/400/404 |
 | `POST` | `/runs/{run_id}/finalize` | optional candidate IDs/trials/workers | Search-isolated holdout report; rejects synthetic search | 200/409/422 |
 | `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to active and durable branch records) | 200 |
 

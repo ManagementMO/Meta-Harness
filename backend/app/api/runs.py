@@ -5,20 +5,26 @@ from __future__ import annotations
 import asyncio
 import difflib
 import json
+import re
 import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, Field
 
 from app.meta_harness import runs as runs_mod
-from app.meta_harness.artifacts import atomic_write_json
+from app.meta_harness.artifacts import atomic_write_json, sha256_file
 from app.meta_harness.branches import cancel_branch, list_branches
-from app.meta_harness.candidates import load_candidate_artifact_any, locate_candidate
+from app.meta_harness.candidates import (
+    candidate_search_roots,
+    load_candidate_artifact_any,
+    locate_candidate,
+)
 from app.meta_harness.contracts import RunMode
 from app.meta_harness.ledger import (
     lifecycle_state,
@@ -32,6 +38,7 @@ from app.streaming import emit_run_event
 
 
 router = APIRouter(tags=["runs"])
+_ARTIFACT_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass
@@ -756,46 +763,46 @@ async def get_run(run_id: str, request: Request) -> dict[str, Any]:
     return _full_run_info(run_dir, run_registry.get(run_id))
 
 
-@router.get("/runs/{run_id}/candidates/{candidate_name}/diff")
+@router.get("/runs/{run_id}/candidates/{candidate_identifier}/diff")
 async def get_candidate_diff(
     run_id: str,
-    candidate_name: str,
+    candidate_identifier: str,
     request: Request,
 ) -> dict[str, Any]:
     run_dir = get_run_dir(request, run_id)
-    _candidate_artifact_dir(run_dir, candidate_name)
+    _candidate_artifact_dir(run_dir, candidate_identifier)
     return _unified_candidate_diff(
         repo_root=_repo_root(request),
         run_dir=run_dir,
-        candidate_name=candidate_name,
+        candidate_name=candidate_identifier,
     )
 
 
-@router.get("/runs/{run_id}/candidates/{candidate_name}/test-output")
+@router.get("/runs/{run_id}/candidates/{candidate_identifier}/test-output")
 async def get_candidate_test_output(
     run_id: str,
-    candidate_name: str,
+    candidate_identifier: str,
     request: Request,
 ) -> dict[str, str]:
     run_dir = get_run_dir(request, run_id)
-    candidate_dir = _candidate_artifact_dir(run_dir, candidate_name)
+    candidate_dir = _candidate_artifact_dir(run_dir, candidate_identifier)
     return {
-        "candidate": candidate_name,
+        "candidate": candidate_identifier,
         "output": _candidate_test_output(candidate_dir),
     }
 
 
-@router.get("/runs/{run_id}/candidates/{candidate_name}/manifest")
+@router.get("/runs/{run_id}/candidates/{candidate_identifier}/manifest")
 async def get_candidate_manifest(
     run_id: str,
-    candidate_name: str,
+    candidate_identifier: str,
     request: Request,
 ) -> dict[str, Any]:
     run_dir = get_run_dir(request, run_id)
     try:
         _artifact_root, artifact = load_candidate_artifact_any(
             run_dir,
-            candidate_name,
+            candidate_identifier,
         )
     except (KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(
@@ -811,11 +818,94 @@ async def get_research_report(run_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/events")
-async def get_evidence_events(run_id: str, request: Request) -> dict[str, Any]:
+async def get_evidence_events(
+    run_id: str,
+    request: Request,
+    event_type: str | None = Query(default=None),
+    entity_type: str | None = Query(default=None),
+    entity_id: str | None = Query(default=None),
+    attempt_id: str | None = Query(default=None),
+    candidate_id: str | None = Query(default=None),
+    task_id: str | None = Query(default=None),
+    tool_name: str | None = Query(default=None),
+    failure_category: str | None = Query(default=None),
+    turn: int | None = Query(default=None, ge=0),
+    created_after: str | None = Query(default=None),
+    created_before: str | None = Query(default=None),
+) -> dict[str, Any]:
     run_dir = get_run_dir(request, run_id)
-    return {
-        "events": [event.model_dump(mode="json") for event in read_events(run_dir)]
-    }
+    roots = candidate_search_roots(run_dir)
+    seen: set[str] = set()
+    events = []
+    for root in roots:
+        for event in read_events(root):
+            payload = event.payload
+            if event.event_id in seen:
+                continue
+            if event_type and event.event_type != event_type:
+                continue
+            if entity_type and event.entity_type != entity_type:
+                continue
+            if entity_id and event.entity_id != entity_id:
+                continue
+            if attempt_id and event.attempt_id != attempt_id:
+                continue
+            if candidate_id and candidate_id not in {
+                event.entity_id,
+                payload.get("candidate_id"),
+            }:
+                continue
+            if task_id and payload.get("task_id") != task_id:
+                continue
+            if tool_name and payload.get("tool_name") != tool_name:
+                continue
+            if (
+                failure_category
+                and payload.get("failure_category") != failure_category
+            ):
+                continue
+            if turn is not None and payload.get("turn") != turn:
+                continue
+            if created_after and event.created_at < created_after:
+                continue
+            if created_before and event.created_at > created_before:
+                continue
+            seen.add(event.event_id)
+            events.append(event)
+    events.sort(key=lambda event: (event.created_at, event.event_id))
+    return {"events": [event.model_dump(mode="json") for event in events]}
+
+
+@router.get("/runs/{run_id}/artifacts/{digest}")
+async def download_artifact(
+    run_id: str,
+    digest: str,
+    request: Request,
+) -> FileResponse:
+    if not _ARTIFACT_DIGEST_RE.fullmatch(digest):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid artifact digest",
+        )
+    run_dir = get_run_dir(request, run_id)
+    for root in candidate_search_roots(run_dir):
+        path = root / "artifacts" / "sha256" / digest[:2] / digest
+        if path.is_file():
+            if sha256_file(path) != digest:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="artifact hash mismatch",
+                )
+            return FileResponse(
+                path,
+                media_type="application/octet-stream",
+                filename=digest,
+                headers={"X-Artifact-SHA256": digest},
+            )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="artifact not found",
+    )
 
 
 @router.post("/runs/{run_id}/finalize")

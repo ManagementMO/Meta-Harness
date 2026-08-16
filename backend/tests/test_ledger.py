@@ -47,6 +47,33 @@ def test_ledger_is_append_only_and_queryable(tmp_path: Path) -> None:
     ]
 
 
+def test_idempotent_event_is_appended_once(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    first = append_event(
+        run_dir,
+        event_type="TaskAttemptFinished",
+        run_id="run",
+        entity_type="attempt",
+        entity_id="attempt-a",
+        attempt_id="attempt-a",
+        idempotency_key="attempt-a:finished",
+        payload={"passed": True},
+    )
+    second = append_event(
+        run_dir,
+        event_type="TaskAttemptFinished",
+        run_id="run",
+        entity_type="attempt",
+        entity_id="attempt-a",
+        attempt_id="attempt-a",
+        idempotency_key="attempt-a:finished",
+        payload={"passed": True},
+    )
+
+    assert first == second
+    assert len(read_events(run_dir)) == 1
+
+
 def test_torn_ledger_tail_is_ignored_and_repaired(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     append_event(

@@ -1,36 +1,8 @@
-"""TypedDict state schemas + Candidate dataclass.
-
-Verbatim from INTERFACES.md §1.
-"""
+"""LangGraph checkpoint-boundary state schemas."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
-
-
-@dataclass
-class Candidate:
-    """A candidate harness moving through the outer-loop pipeline."""
-
-    name: str
-    import_path: str
-    parent: str | None
-    hypothesis: str
-    axis: Literal["exploration", "exploitation"]
-    expected_score_delta: float | None
-    iteration: int
-    traces_dir: Path
-    status: Literal[
-        "pending", "smoke_failed", "evaluated", "rejected", "accepted"
-    ] = "pending"
-    scores: dict[str, Any] | None = None
-    delta: float | None = None
-    cost_usd: float | None = None
-    candidate_id: str | None = None
-    artifact_path: str | None = None
-    parent_ids: list[str] | None = None
+from typing import Any, NotRequired, TypedDict
 
 
 class MetaHarnessState(TypedDict):

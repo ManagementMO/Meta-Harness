@@ -236,6 +236,9 @@ async def worktree_add(
     thread_id = f"{parent_thread_id}.fork.{branch_id}"
     execution_dir = run_dir / "branches" / branch_id if run_dir is not None else None
     if execution_dir is not None:
+        branches_root = (run_dir / "branches").resolve()
+        execution_dir = execution_dir.resolve()
+        execution_dir.relative_to(branches_root)
         execution_dir.mkdir(parents=True, exist_ok=True)
     metadata = BranchMetadata(
         branch_id=branch_id,

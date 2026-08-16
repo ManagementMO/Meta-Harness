@@ -1,6 +1,6 @@
 import type { CandidateStatus, MemoryEntry, RunSummary, Scores, TreeNode } from "./types";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 // ── Availability check ──
 
@@ -396,11 +396,21 @@ export async function getRunReport(runId: string): Promise<Record<string, unknow
   return res.ok ? ((await res.json()) as Record<string, unknown>) : null;
 }
 
-export async function getEvidenceEvents(runId: string): Promise<unknown[]> {
-  const res = await fetch(`${BASE_URL}/runs/${encodeURIComponent(runId)}/events`);
+export async function getEvidenceEvents(
+  runId: string,
+  candidateId?: string,
+): Promise<unknown[]> {
+  const params = new URLSearchParams();
+  if (candidateId) params.set('candidate_id', candidateId);
+  const query = params.size > 0 ? `?${params.toString()}` : '';
+  const res = await fetch(`${BASE_URL}/runs/${encodeURIComponent(runId)}/events${query}`);
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data.events) ? data.events : [];
+}
+
+export function artifactUrl(runId: string, digest: string): string {
+  return `${BASE_URL}/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(digest)}`;
 }
 
 export async function finalizeRun(

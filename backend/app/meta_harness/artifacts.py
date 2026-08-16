@@ -34,6 +34,18 @@ def canonical_json_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -44,8 +56,30 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_path, path)
+        _fsync_directory(path.parent)
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+def atomic_create_bytes(path: Path, content: bytes) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    tmp_path = Path(raw_tmp)
+    created = False
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(tmp_path, path)
+            created = True
+        except FileExistsError:
+            created = False
+    finally:
+        tmp_path.unlink(missing_ok=True)
+        _fsync_directory(path.parent)
+    return created
 
 
 def atomic_write_text(path: Path, content: str) -> None:
@@ -67,11 +101,9 @@ def store_artifact(
     digest = sha256_bytes(content)
     relative = Path("artifacts") / "sha256" / digest[:2] / digest
     target = run_dir / relative
-    if target.exists():
-        if sha256_file(target) != digest:
-            raise ValueError(f"artifact hash mismatch at {target}")
-    else:
-        atomic_write_bytes(target, content)
+    created = atomic_create_bytes(target, content)
+    if not created and sha256_file(target) != digest:
+        raise ValueError(f"artifact hash mismatch at {target}")
     return ArtifactRef(
         sha256=digest,
         artifact_path=relative.as_posix(),

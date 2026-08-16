@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Dashboard (mock mode, no backend)', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('http://localhost:8000/health', route => route.abort());
+    await page.route('**/api/health', route => route.abort());
     await page.goto('/runs/demo-2026-04-25');
     await page.getByText('SSE connected').waitFor({ timeout: 10_000 });
   });

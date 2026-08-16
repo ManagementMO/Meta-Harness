@@ -30,6 +30,7 @@ from app.meta_harness.contracts import (
     CandidateRecord,
     CandidateStatus,
     EvaluationPolicy,
+    PendingEvaluation,
     RunManifest,
     RunMode,
     utc_now,
@@ -330,6 +331,17 @@ class OuterLoopRunner:
             trials=self.trials,
             workers=self.bench_workers,
             proposer_model=self.proposer_model,
+            proposer_evidence_access=(
+                ["synthetic_fixture"]
+                if self.mock_proposer
+                else [
+                    "evolution_summary",
+                    "frontier",
+                    "candidate_source",
+                    "raw_traces",
+                ]
+            ),
+            human_intervention=False,
             skill_path=str(self.skill_path) if self.skill_path else None,
         )
         path = execution_dir / "manifest.json"
@@ -529,11 +541,23 @@ class OuterLoopRunner:
                 research_mode=self.mode == RunMode.RESEARCH,
                 model=self.proposer_model,
             )
-        proposed = payload.get("candidates")
-        if proposed is None and payload.get("name"):
-            proposed = [payload]
-        if not isinstance(proposed, list) or not proposed:
-            raise ValueError("proposer returned no candidates")
+        normalized_payload = payload
+        if payload.get("candidates") is None and payload.get("name"):
+            candidate_payload = dict(payload)
+            candidate_payload.pop("iteration", None)
+            normalized_payload = {
+                "iteration": iteration,
+                "candidates": [candidate_payload],
+            }
+        pending = PendingEvaluation.model_validate(normalized_payload)
+        if pending.iteration != iteration:
+            raise ValueError(
+                f"proposal iteration mismatch: {pending.iteration} != {iteration}"
+            )
+        proposed = [
+            candidate.model_dump(mode="json", exclude_none=True)
+            for candidate in pending.candidates
+        ]
         policy = self._policy()
         session_id = self._proposer_session_id(execution_dir, iteration)
         active_ids: list[str] = []
@@ -1286,7 +1310,6 @@ async def resume_outer_loop(
             },
         )
     except asyncio.CancelledError:
-        _update_manifest(manifest_path, status="waiting")
         if lifecycle_state(run_dir, entity_type="run", entity_id=run_dir.name) == "running":
             transition_lifecycle(
                 run_dir,
@@ -1297,9 +1320,9 @@ async def resume_outer_loop(
                 thread_id=run_dir.name,
                 reason="resume interrupted; checkpoint retained",
             )
+        _update_manifest(manifest_path, status="waiting")
         raise
     except Exception as exc:
-        _update_manifest(manifest_path, status="failed", error=str(exc))
         if lifecycle_state(run_dir, entity_type="run", entity_id=run_dir.name) == "running":
             transition_lifecycle(
                 run_dir,
@@ -1310,6 +1333,7 @@ async def resume_outer_loop(
                 thread_id=run_dir.name,
                 reason=str(exc),
             )
+        _update_manifest(manifest_path, status="failed", error=str(exc))
         raise
     if lifecycle_state(run_dir, entity_type="run", entity_id=run_dir.name) == "running":
         transition_lifecycle(
