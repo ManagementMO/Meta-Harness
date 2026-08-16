@@ -552,6 +552,11 @@ class OuterLoopRunner:
                     else "trusted-local-autonomous"
                 ),
                 proposer_session_id=session_id,
+                extra={
+                    "proposer_model": self.proposer_model,
+                    "parent_policy": self.parent_policy,
+                    "iteration": iteration,
+                },
             )
             artifact = materialize_candidate(
                 run_dir=execution_dir,

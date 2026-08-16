@@ -102,6 +102,8 @@ def _candidate_identity(
         "runtime_sha256": provenance.runtime_sha256,
         "dependency_lock_sha256": provenance.dependency_lock_sha256,
         "authorization_profile": provenance.authorization_profile,
+        "proposer_model": (provenance.model_extra or {}).get("proposer_model"),
+        "parent_policy": (provenance.model_extra or {}).get("parent_policy"),
     }
     return "cand_" + sha256_bytes(canonical_json_bytes(identity))[:16]
 

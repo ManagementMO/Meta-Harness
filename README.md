@@ -130,11 +130,21 @@ cd backend && uv run pytest tests/ -q
 # Smoke-test the inner loop end-to-end on one task (~24 s, ~$0.05)
 uv run meta-harness inner --task task-001-fix-typo --candidate baseline
 
-# Run the meta-harness with the mock proposer (no LLM, completes in <1 s)
-uv run meta-harness loop --proposer mock --mock-bench --budget 2 --fresh
+# Synthetic plumbing smoke; visibly labeled and excluded from research reports
+uv run meta-harness loop --proposer mock --mock-bench --budget 2 --fresh \
+  --mode research --run-name smoke
+uv run meta-harness report smoke
 
-# Run with the real claude CLI proposer (~3 min on subscription auth)
-uv run meta-harness loop --proposer claude --budget 1 --fresh --mock-bench
+# Real search; fixed inner model, no global memory, measured provider usage
+uv run meta-harness loop --proposer claude --budget 1 --fresh \
+  --mode research --run-name measured-search
+
+# Finalize only after measured search, without feeding holdout results back
+uv run meta-harness finalize measured-search
+
+# Export source/runtime/task/evidence hashes; add --include-raw for raw traces
+uv run meta-harness bundle measured-search --output measured-search.zip
+uv run meta-harness verify-bundle measured-search.zip
 
 # Resume an interrupted run from its last Postgres checkpoint
 uv run meta-harness resume <run-name>

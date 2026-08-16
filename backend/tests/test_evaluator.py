@@ -56,8 +56,13 @@ def _task(repo_root: Path) -> TaskSpec:
     )
 
 
-def _artifact(repo_root: Path, run_dir: Path, policy: EvaluationPolicy):
-    source = _source(repo_root)
+def _artifact(
+    repo_root: Path,
+    run_dir: Path,
+    policy: EvaluationPolicy,
+    source: Path | None = None,
+):
+    source = source or _source(repo_root)
     return materialize_candidate(
         run_dir=run_dir,
         repo_root=repo_root,
@@ -162,6 +167,35 @@ async def test_evaluator_aborts_on_infrastructure_failure(tmp_path: Path) -> Non
     )
 
     with pytest.raises(EvaluationInfrastructureError):
+        await evaluator.evaluate_candidate(artifact, [_task(repo_root)])
+
+
+async def test_research_evaluator_rejects_model_drift(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    run_dir = repo_root / "runs" / "run-a"
+    run_dir.mkdir(parents=True)
+    source = _source(repo_root)
+    source.write_text(
+        source.read_text().replace(
+            "return SimpleNamespace(content=[block], usage=usage)",
+            "return SimpleNamespace(content=[block], usage=usage, model='wrong-model')",
+        )
+    )
+    policy = EvaluationPolicy(
+        policy_id="search-v1",
+        inner_model="fixed-model",
+        runtime_adapter="generic-command-v1",
+        trials=1,
+        workers=1,
+    )
+    artifact = _artifact(repo_root, run_dir, policy, source)
+    evaluator = Evaluator(
+        run_dir=run_dir,
+        repo_root=repo_root,
+        policy=policy,
+    )
+
+    with pytest.raises(EvaluationInfrastructureError, match="policy"):
         await evaluator.evaluate_candidate(artifact, [_task(repo_root)])
 
 

@@ -294,6 +294,7 @@ class Evaluator:
         score = 0.0
         failure_category: FailureCategory | None = FailureCategory.UNKNOWN
         error: dict[str, str] | None = None
+        observed_models: set[str] = set()
         harness = None
         try:
             harness = candidate_class()
@@ -344,7 +345,12 @@ class Evaluator:
             error = {"type": type(exc).__name__, "message": str(exc)}
         except Exception as exc:
             message = str(exc)
-            if exc.__class__.__module__.startswith("anthropic") or "ANTHROPIC_API_KEY" in message:
+            if isinstance(exc, EvaluationPolicyError):
+                failure_category = FailureCategory.POLICY
+            elif (
+                exc.__class__.__module__.startswith("anthropic")
+                or "ANTHROPIC_API_KEY" in message
+            ):
                 failure_category = FailureCategory.MODEL
             elif exc.__class__.__module__.startswith("app.meta_harness"):
                 failure_category = FailureCategory.EVALUATOR
@@ -363,6 +369,8 @@ class Evaluator:
             "exit_code": verify_result.get("exit_code"),
             "timed_out": bool(verify_result.get("timed_out", False)),
             "output": verify_result.get("test_output", ""),
+            "expected_model": self.policy.inner_model,
+            "observed_models": sorted(observed_models),
             "error": error,
         }
         result = TaskResult(
@@ -671,6 +679,8 @@ class Evaluator:
                             "exit_code": 0 if passed else 1,
                             "timed_out": False,
                             "output": "synthetic mock fixture",
+                            "expected_model": self.policy.inner_model,
+                            "observed_models": [],
                             "error": None,
                         },
                         lint_summary={

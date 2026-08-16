@@ -40,7 +40,16 @@ def _bundle_files(run_dir: Path, *, include_raw: bool) -> list[Path]:
         if relative.as_posix() in exact:
             files.append(path)
             continue
-        if relative.name in {"candidate.json", "eval-result.json", "status.json"}:
+        if relative.name in {
+            "branch.json",
+            "candidate.json",
+            "eval-result.json",
+            "events.jsonl",
+            "evolution_summary.jsonl",
+            "frontier_val.json",
+            "manifest.json",
+            "status.json",
+        }:
             files.append(path)
             continue
         if "source" in relative.parts or "refinements" in relative.parts:

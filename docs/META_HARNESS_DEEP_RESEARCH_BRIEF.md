@@ -32,7 +32,7 @@ That ordering matters here because the repository contains useful historical doc
 
 The current working tree now implements the first architecture pass described by this brief: immutable run-scoped candidate manifests, source/runtime/dependency-lock hashes, explicit candidate IDs, baseline evaluation, population evaluation, measured/unknown/synthetic metric contracts, one evaluator for search and holdout, task runtime adapters, corrected retry feedback and structural hooks, inner checkpoint propagation, isolated holdout finalization, paired regression reports, append-only evidence events with content-addressed artifacts and torn-tail recovery, scoped/versioned memory fields, reversible refinement records, durable branch projections, research/autonomous modes, deterministic experiment bundles, repeated-run confidence summaries, and provenance/evidence surfaces in the CLI, API, and dashboard.
 
-This is an implementation claim, not a self-improvement result. Current deterministic and Postgres-backed verification passes with `119 passed, 1 skipped`; the single skip is the credential-gated live Anthropic trial. Frontend lint/build and all 9 Playwright dashboard tests pass, including a live FastAPI/SSE provenance flow. A persistent two-iteration mock CLI run produces three immutable candidates, a candidate-ID frontier, a durable lifecycle/evidence ledger, and a synthetic-labeled report; holdout finalization correctly refuses that synthetic search.
+This is an implementation claim, not a self-improvement result. Current deterministic and Postgres-backed verification passes with `121 passed, 1 skipped`; the single skip is the credential-gated live Anthropic trial. Frontend lint/build and all 9 Playwright dashboard tests pass, including a live FastAPI/SSE provenance flow. A persistent two-iteration mock CLI run produces three immutable candidates, a candidate-ID frontier, a durable lifecycle/evidence ledger, and a synthetic-labeled report; holdout finalization correctly refuses that synthetic search.
 
 Live provider benchmarking, a stronger security sandbox, an actual recursive/RLM backend, larger task distributions, held-out models, multiple measured seeds, and independent re-execution of exported experiment bundles still require separate validation or additional inputs. The roadmap below remains authoritative for those later gates.
 
@@ -302,15 +302,9 @@ These invariants are compatible with a more durable and capable runtime; they ar
 
 The outer graph is a good home for research logic because it can remain stable while the inner harness changes. It also creates a natural place for candidate archives, search policies, budget accounting, and ablations.
 
-The current weaknesses are contract-level rather than conceptual:
+The original review found contract-level weaknesses rather than a conceptual failure. The implementation now evaluates an explicit baseline, materializes every proposal as a `CandidateArtifact`, passes active candidate IDs between nodes, evaluates complete populations, preserves all archive records, and records `best_accuracy` or deterministic `pareto_sample` as the parent policy. Unknown resource measurements remain unknown, synthetic fixtures remain synthetic, and the frontier records whether its token objective is active.
 
-- `propose` increments the iteration and uses `state["best_candidate"]` as the parent. That is a valid baseline policy, but it is only one search policy and should be represented as such rather than treated as the universal algorithm.
-- `validate`, `benchmark`, and `update_frontier` select `state["candidates"][-1]` in key paths. If more than one candidate is appended or if a retry leaves stale list order, a candidate can be evaluated or promoted because it is last rather than because it is the intended candidate.
-- The frontier module can compare accuracy and average tokens, but the real benchmark currently fills the token/cost fields with zeros. This makes the Pareto surface appear better than it is and can select a candidate for an objective that was never measured.
-- The strict improvement gate in frontier updating uses accuracy. That is reasonable as a first gate, but it means a candidate that is cheaper with equal accuracy may not be promoted even though the frontier module is designed to recognize resource tradeoffs.
-- The state typing describes `candidates` as `list[Candidate]`, while runtime paths commonly use dictionaries. This weakens static reasoning and makes it easier for a future agent to misunderstand which keys are guaranteed.
-
-The outer loop should evolve toward an explicit `CandidateRef`/`CandidateArtifact` contract, where nodes pass IDs and manifests instead of relying on list position and mutable dictionaries.
+Candidate/evaluation/evidence/refinement contracts are Pydantic-validated and serialized as dictionaries only at the LangGraph checkpoint boundary. The remaining outer-loop work is empirical: run live multi-policy and population ablations, validate provider usage at scale, and add distributed admission if multiple backend workers must coordinate one run.
 
 ### 3.2 Inner coding harness
 
@@ -333,25 +327,23 @@ The current inner harness has several useful properties:
 
 The main limitations are:
 
-#### Hard-coded ecosystem assumptions
+#### Runtime adapters
 
-`orient` detects Python files/`pyproject.toml`, assumes pytest as the test runner, reads a bounded set of Python tests/configuration files, and derives context from that ecosystem. That is appropriate for the first task set, but the harness should declare a `TaskRuntimeAdapter` rather than quietly treating Python/pytest as universal.
+Task specifications now declare a runtime adapter. `python-pytest-v1` preserves the original orientation and pytest behavior, while `generic-command-v1` establishes the extension boundary for other ecosystems. The shared adapter owns orientation and verification for standalone scoring, inner retries, search evaluation, and holdout finalization. Adding JavaScript, Rust, or remote-sandbox support no longer requires changing the graph topology.
 
-#### Verification used a different subprocess path from the shared sandbox executor
+#### Shared verification and evaluation policy
 
-The benchmark path does place each task workspace inside `sandbox_for(...)`, which creates a fresh temporary copy and cleans it up. The narrower issue was inside the inner `verify` phase: it called `subprocess.run(test_command, shell=True, cwd=workspace, timeout=60)` directly instead of using the shared `run_in_sandbox(...)` executor.
+Every task workspace is copied through `sandbox_for(...)`; verification and tool shell calls use the shared executor. `EvaluationPolicy` records task visibility, sandbox profile, runtime adapter, execution backend, fixed model, trials, workers, memory/recursion flags, and synthetic status. The evaluator records manifest/task hashes, command, exit code, timeout, artifacts, usage, retry count, and failure category. Provider-reported model drift aborts research evaluation rather than becoming a low score.
 
-That divergence mattered because `run_in_sandbox(...)` is where the project applies its Unix resource-limit hook and centralizes the command execution policy. The direct verifier inherited the copied workspace from the outer benchmark, but it did not inherit the shared executor’s pre-exec limits or future policy changes. The implementation has now been aligned to call the shared executor, while the larger security caveat remains: the current sandbox is process/workspace isolation, not Docker/VM/network isolation.
+The remaining sandbox work is OS enforcement: network mode, binary/environment allowlists, stronger CPU/memory behavior on Darwin/Windows, and container/VM isolation for untrusted code.
 
-The remaining evaluator work should still introduce an explicit policy containing workspace root, network mode, CPU/memory/wall limits, allowed command family, environment allowlist, output limits, and artifact collection rules. Calling the shared helper fixes the immediate divergence; it does not make the local sandbox a complete security boundary.
+#### Lint and scope status
 
-#### Lint and scope checks are placeholders
+Lint is now explicitly `unknown`, never hard-coded passing. File scope is measured by before/after hashes, compared with `expected_files_changed`, and persisted as changed/out-of-plan evidence. A future lint adapter can turn lint from unknown into measured without changing `TaskResult`.
 
-The verifier currently assigns `lint_pass=True`, an empty `lint_errors` list, and an empty `out_of_plan_changes` list. These fields look like real evaluation dimensions but do not currently carry evidence. They must either be implemented or renamed to make their placeholder status impossible to miss.
+#### Submission and evaluator metrics
 
-#### Submission is binary
-
-`submit` gives a score of one if tests pass and zero otherwise, then snapshots files under a size threshold. This is a useful smoke score, but it is not enough for research comparisons involving partial credit, regressions, efficiency, or failure diagnosis. The evaluator should preserve the binary score as one field while also recording per-task metrics and structured failure categories.
+The inner `submit` score remains binary for the current fixtures. The evaluator preserves that field while adding per-task aggregates, paired regressions, structured candidate/model/evaluator/policy/sandbox/timeout/verification failures, measured or unknown usage, tool/model-call counts, turns, retries, wall time, and immutable artifact references.
 
 ### 3.3 Tools and patch semantics
 

@@ -116,6 +116,139 @@ def _policy(
     )
 
 
+def _write_cli_manifest(
+    *,
+    run_dir: Path,
+    policy: Any,
+    task_ids: list[str],
+    status: str,
+    best_candidate: str | None = None,
+    best_candidate_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    from app.meta_harness.artifacts import atomic_write_json, sha256_file
+    from app.meta_harness.contracts import RunManifest, RunMode
+    from app.meta_harness.provenance import capture_git_state, capture_runtime_sha256
+
+    git_commit, git_dirty = capture_git_state(REPO_ROOT)
+    manifest = RunManifest(
+        run_id=run_dir.name,
+        mode=RunMode.RESEARCH,
+        status=status,
+        git_commit=git_commit,
+        git_dirty=git_dirty,
+        runtime_sha256=capture_runtime_sha256(REPO_ROOT),
+        dependency_lock_sha256=(
+            sha256_file(REPO_ROOT / "uv.lock")
+            if (REPO_ROOT / "uv.lock").is_file()
+            else None
+        ),
+        policy=policy,
+        search_task_ids=task_ids if policy.task_visibility == "search" else [],
+        holdout_visible=policy.task_visibility == "holdout",
+        persistence_backend="memory",
+        synthetic=policy.synthetic,
+        best_candidate=best_candidate,
+        best_candidate_id=best_candidate_id,
+        error=error,
+    )
+    atomic_write_json(run_dir / "manifest.json", manifest)
+
+
+def _write_cli_evaluation_index(
+    *,
+    run_dir: Path,
+    artifact: Any,
+    evaluation: Any,
+    iteration: int = 0,
+) -> None:
+    from app.meta_harness.artifacts import atomic_write_json
+    from app.meta_harness import runs as runs_module
+
+    accuracy = evaluation.accuracy.value
+    total_tokens = None
+    if (
+        evaluation.usage.input_tokens.value is not None
+        and evaluation.usage.output_tokens.value is not None
+    ):
+        total_tokens = (
+            evaluation.usage.input_tokens.value
+            + evaluation.usage.output_tokens.value
+        )
+    attempts = max(1, len(evaluation.task_results))
+    avg_tokens = total_tokens / attempts if total_tokens is not None else None
+    frontier = {
+        "iteration": iteration,
+        "candidates": [
+            {
+                "candidate_id": artifact.candidate_id,
+                "name": artifact.name,
+                "accuracy": accuracy,
+                "avg_tokens": avg_tokens,
+                "dominated_by_names": [],
+                "synthetic": evaluation.synthetic,
+            }
+        ],
+        "_pareto_names": [artifact.name],
+        "_pareto_ids": [artifact.candidate_id],
+        "_best": {
+            "candidate_id": artifact.candidate_id,
+            "name": artifact.name,
+            "accuracy": accuracy,
+            "avg_tokens": avg_tokens,
+        },
+        "per_task": {
+            task_id: {
+                "best_candidate": artifact.name,
+                "best_candidate_id": artifact.candidate_id,
+                "pass_rate": aggregate.pass_rate,
+            }
+            for task_id, aggregate in evaluation.per_task.items()
+        },
+    }
+    runs_module.write_frontier(run_dir, frontier)
+    runs_module.append_evolution_summary(
+        run_dir,
+        {
+            "iteration": iteration,
+            "candidate": artifact.name,
+            "candidate_id": artifact.candidate_id,
+            "artifact_path": (
+                f"candidates/{artifact.candidate_id}/candidate.json"
+            ),
+            "parent_candidate_name": None,
+            "parent_ids": artifact.parent_ids,
+            "status": "best",
+            "scores": {
+                "accuracy": evaluation.accuracy.model_dump(mode="json"),
+                "accuracy_value": accuracy,
+                "per_task": {
+                    key: value.model_dump(mode="json")
+                    for key, value in evaluation.per_task.items()
+                },
+                "usage": evaluation.usage.model_dump(mode="json"),
+                "synthetic": evaluation.synthetic,
+            },
+            "delta": None,
+            "synthetic": evaluation.synthetic,
+            "thread_id": run_dir.name,
+        },
+    )
+    atomic_write_json(
+        run_dir / "candidates" / artifact.candidate_id / "status.json",
+        {
+            "candidate": artifact.name,
+            "candidate_id": artifact.candidate_id,
+            "accepted": True,
+            "parent": None,
+            "parent_ids": artifact.parent_ids,
+            "delta": None,
+            "reason": "standalone-evaluation",
+            "synthetic": evaluation.synthetic,
+        },
+    )
+
+
 def _materialize_cli_candidate(
     *,
     run_dir: Path,
@@ -177,6 +310,12 @@ def inner(
         synthetic=False,
         allow_global_memory=False,
     )
+    _write_cli_manifest(
+        run_dir=run_dir,
+        policy=policy,
+        task_ids=[task],
+        status="running",
+    )
     artifact = _materialize_cli_candidate(
         run_dir=run_dir,
         candidate=candidate,
@@ -188,13 +327,37 @@ def inner(
         policy=policy,
         phase=visibility,
     )
-    evaluation = _run_async(
-        evaluator.evaluate_candidate(
-            artifact,
-            [load_task_spec(task_dir, visibility=visibility)],
+    try:
+        evaluation = _run_async(
+            evaluator.evaluate_candidate(
+                artifact,
+                [load_task_spec(task_dir, visibility=visibility)],
+            )
         )
-    )
+    except Exception as exc:
+        _write_cli_manifest(
+            run_dir=run_dir,
+            policy=policy,
+            task_ids=[task],
+            status="failed",
+            error=str(exc),
+        )
+        typer.echo(f"inner evaluation failed: {exc}", err=True)
+        raise typer.Exit(2) from None
     result = evaluation.task_results[0]
+    _write_cli_evaluation_index(
+        run_dir=run_dir,
+        artifact=artifact,
+        evaluation=evaluation,
+    )
+    _write_cli_manifest(
+        run_dir=run_dir,
+        policy=policy,
+        task_ids=[task],
+        status="completed",
+        best_candidate=artifact.name,
+        best_candidate_id=artifact.candidate_id,
+    )
     typer.echo(
         json.dumps(
             {
@@ -248,6 +411,12 @@ def benchmark(
         synthetic=False,
         allow_global_memory=False,
     )
+    _write_cli_manifest(
+        run_dir=run_dir,
+        policy=policy,
+        task_ids=[task.id for task in tasks],
+        status="running",
+    )
     artifact = _materialize_cli_candidate(
         run_dir=run_dir,
         candidate=candidate,
@@ -259,7 +428,31 @@ def benchmark(
         policy=policy,
         phase=visibility,
     )
-    evaluation = _run_async(evaluator.evaluate_candidate(artifact, tasks))
+    try:
+        evaluation = _run_async(evaluator.evaluate_candidate(artifact, tasks))
+    except Exception as exc:
+        _write_cli_manifest(
+            run_dir=run_dir,
+            policy=policy,
+            task_ids=[task.id for task in tasks],
+            status="failed",
+            error=str(exc),
+        )
+        typer.echo(f"benchmark failed: {exc}", err=True)
+        raise typer.Exit(2) from None
+    _write_cli_evaluation_index(
+        run_dir=run_dir,
+        artifact=artifact,
+        evaluation=evaluation,
+    )
+    _write_cli_manifest(
+        run_dir=run_dir,
+        policy=policy,
+        task_ids=[task.id for task in tasks],
+        status="completed",
+        best_candidate=artifact.name,
+        best_candidate_id=artifact.candidate_id,
+    )
     typer.echo(json.dumps(evaluation.model_dump(mode="json"), indent=2))
 
 
