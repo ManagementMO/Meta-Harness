@@ -17,14 +17,14 @@ export function MonoStat({
   value: number | null | undefined;
   format?: (v: number) => string;
   fallback?: string;
-  tone?: "ink" | "glacier" | "moss" | "ember" | "iris";
+  tone?: "ink" | "frost" | "moss" | "ember" | "iris";
   size?: "md" | "lg";
   suffix?: ReactNode;
   className?: string;
 }) {
   const toneClass = {
     ink: "text-ink",
-    glacier: "text-glacier-bright",
+    frost: "text-frost-bright",
     moss: "text-moss",
     ember: "text-ember",
     iris: "text-iris",

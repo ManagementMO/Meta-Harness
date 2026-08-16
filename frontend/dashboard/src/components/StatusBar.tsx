@@ -19,7 +19,7 @@ export function StatusBar() {
           className={cn(
             "w-1.5 h-1.5 rounded-full",
             sseConnected
-              ? "bg-glacier shadow-[0_0_6px_rgba(105,227,213,0.5)] animate-breathe"
+              ? "bg-frost shadow-[0_0_6px_rgba(255,255,255,0.35)] animate-breathe"
               : "bg-ember",
           )}
         />

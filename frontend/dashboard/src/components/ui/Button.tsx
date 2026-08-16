@@ -7,10 +7,10 @@ type Variant = "primary" | "ghost" | "quiet";
 type Size = "sm" | "md";
 
 const VARIANTS: Record<Variant, string> = {
-  // The one loud action on a surface — glacier, reserved.
+  // The one loud action on a surface — frost, reserved.
   primary:
-    "bg-glacier/12 border border-glacier/35 text-glacier-bright " +
-    "hover:bg-glacier/18 hover:border-glacier/55 active:scale-[0.98]",
+    "bg-frost/12 border border-frost/35 text-frost-bright " +
+    "hover:bg-frost/18 hover:border-frost/55 active:scale-[0.98]",
   ghost:
     "bg-white/[0.03] border border-white/8 text-ink-mid " +
     "hover:text-ink hover:border-white/14 hover:bg-white/[0.05] active:scale-[0.98]",

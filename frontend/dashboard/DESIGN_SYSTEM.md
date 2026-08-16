@@ -51,26 +51,29 @@ scrolling list items, or nested more than 2 glass layers deep.
 | `--color-ink-low` | `#5A6473` | tertiary, axis labels |
 | `--color-ink-ghost` | `#39414D` | watermarks, disabled |
 
-### 1.4 The accent — Glacier
-ONE signature accent: electric glacier cyan. Reserved exclusively for:
-live/streaming state, the Pareto frontier, best candidate, primary actions, focus rings.
+### 1.4 The accent — Frost (monochrome light)
+No hue accent at all — the signature accent is **white light on black glass**,
+Apple-style. Frost is reserved exclusively for: live/streaming state, the Pareto
+frontier, best candidate, primary actions, focus rings. Nothing "AI-vibey";
+the instrument reads pure black-and-white.
 
 | Token | Value | Use |
 |---|---|---|
-| `--color-glacier` | `#69E3D5` | lines, borders, icons |
-| `--color-glacier-bright` | `#A7F3EA` | text on dark, hover |
-| `--color-glacier-dim` | `#2E8A81` | quiet borders/edges |
-| glow | `rgba(105,227,213,0.14)` | shadows/halos, never stacked |
+| `--color-frost` | `#E8EEF5` | lines, borders, icons |
+| `--color-frost-bright` | `#FFFFFF` | text on dark, hover, glows |
+| `--color-frost-dim` | `#B9C2CD` | quiet accent edges |
+| glow | `rgba(255,255,255,0.10–0.35)` | shadows/halos, never stacked |
 
 ### 1.5 Semantic whisper tones
-Heavily desaturated until hovered/focused. Used as text/border at low alpha, ~10% alpha fills.
+Barely-there hue over gray — the UI reads monochrome at a glance; meaning
+surfaces on inspection. Used as text/border at low alpha, ~8–10% alpha fills.
 
 | Meaning | Token | Value |
 |---|---|---|
-| accepted / pass | `--color-moss` | `#7FAE93` |
-| rejected / fail | `--color-ember` | `#C0808B` |
-| pending / synthetic | `--color-sand` | `#C2A97E` |
-| fork / branch | `--color-iris` | `#9D92C4` |
+| accepted / pass | `--color-moss` | `#8CA396` |
+| rejected / fail | `--color-ember` | `#B39199` |
+| pending / synthetic | `--color-sand` | `#B3A78F` |
+| fork / branch | `--color-iris` | `#9E9BB3` |
 
 Rule: semantic hues never appear as large fills; chips are `color/12%` fill +
 `color/25%` border + full-color text.
@@ -98,7 +101,7 @@ Scale (dense instrument, nothing below 10px):
 - Borders always 1px, white-alpha. No colored borders except semantic chips + focus.
 
 ### 1.8 Focus & a11y
-- Focus ring: `2px solid var(--color-glacier)` offset 2px, on `:focus-visible` only.
+- Focus ring: `2px solid var(--color-frost)` offset 2px, on `:focus-visible` only.
 - All text ≥ 4.5:1 on its surface (ink-mid on glass ≈ 7:1; whisper tones verified ≥ 4.6:1).
 - Hit targets ≥ 24px; interactive rows get full-row targets.
 - `prefers-reduced-motion`: all non-essential motion off, final states rendered instantly.
@@ -130,22 +133,22 @@ Never more than one infinite animation per viewport region (the live dot).
 - Main series: `--color-ink-mid` thin line, dots 3px.
 - Fork series: `--color-iris` whisper.
 - Rejected points: `--color-ember` at 45% opacity.
-- **Pareto frontier: glacier step-line, 1.5px, subtle glow** `drop-shadow(0 0 6px rgba(105,227,213,0.35))` — the only glow.
-- Best point: glacier dot with halo ring.
+- **Pareto frontier: frost step-line, 1.5px, subtle glow** `drop-shadow(0 0 6px rgba(255,255,255,0.3))` — the only glow.
+- Best point: frost dot with halo ring.
 - Hover crosshair: hairline + mono readout chip (`glass-raised`, no blur — solid fill).
 
 ### TrajectoryTree (ReactFlow)
 - Nodes: opaque `--color-node` fill (no blur in canvas), 1px status border at 35% alpha,
-  specular top edge via inset gradient, mono data. Selected: glacier border + halo.
-- Best node: glacier border + `0 0 24px rgba(105,227,213,0.12)` glow.
+  specular top edge via inset gradient, mono data. Selected: frost border + halo.
+- Best node: frost border + `0 0 24px rgba(255,255,255,0.12)` glow.
 - Edges: 1.5px; accepted `moss/60`, rejected `ember/35`, fork `iris/60`; draw-in animated.
 - Background: faint dot matrix `rgba(255,255,255,0.035)`.
 
 ### Monaco `obsidian` theme
 - bg `#080B10`, fg `#C9D2DD`, line numbers `#39414D`,
-  inserted `rgba(127,174,147,0.14)`, removed `rgba(192,128,139,0.12)`,
-  selection `rgba(105,227,213,0.12)`, cursor `#69E3D5`.
-- Syntax: keywords `#8E99A8` 600, strings `#7FAE93`, numbers `#A7F3EA`, comments `#5A6473` italic.
+  inserted `rgba(140,163,150,0.13)`, removed `rgba(179,145,153,0.11)`,
+  selection `rgba(255,255,255,0.12)`, cursor `#FFFFFF`.
+- Syntax: keywords `#8E99A8` 600, strings `#8CA396`, numbers `#E9EDF2`, comments `#5A6473` italic.
 
 ### Console (TestOutput)
 `well` recipe, mono 12px, pass lines `moss`, fail lines `ember`, summary row pinned.
@@ -157,7 +160,7 @@ Never more than one infinite animation per viewport region (the live dot).
 ### Run status (StatusPill)
 | Status | Treatment |
 |---|---|
-| `running` + SSE open | glacier pill, breathing dot, "LIVE" |
+| `running` + SSE open | frost pill, breathing dot, "LIVE" |
 | `running` + SSE lost | sand pill, hollow dot, "RECONNECTING" |
 | `completed` | moss whisper pill, solid dot |
 | `failed` | ember whisper pill |
@@ -200,7 +203,7 @@ Panels are floating glass islands over the void with 12px gutters, not a flat sp
 ### Home (launch pad)
 Obsidian void + atmosphere; brand lockup (Geist display + mono eyebrow);
 launch console = one `glass-panel` bezel: proposer/bench segmented controls,
-preset cards (hover sweep), primary "Initialize run" glacier action;
+preset cards (hover sweep), primary "Initialize run" frost action;
 recent-runs rail (mono table) when backend live; quiet auth links; status readout bottom-left.
 
 Grid/scan-line/typing-title effects die. One page-load stagger (80ms steps), then still.
@@ -217,4 +220,4 @@ checkpoint = `floppy-disk-back`, frontier = `chart-line-up`, live = `broadcast`.
 Typing-title + blinking cursor; SVG gridline background; scanline; rainbow tag pills;
 7–9px type; JetBrains-for-everything; flat `#111118` panels + solid header strips;
 unicode icons; vs-dark Monaco; borders-on-everything cards; 220px unusable tree column;
-purple `#8878a8` as quasi-accent; uppercase 10px walls in StatusBar.
+purple `#8878a8` and teal `#7ab8ad` as quasi-accents; uppercase 10px walls in StatusBar.

@@ -1,13 +1,13 @@
 import { cn } from "@/lib/cn";
 
-export type BadgeTone = "moss" | "ember" | "sand" | "iris" | "glacier" | "neutral";
+export type BadgeTone = "moss" | "ember" | "sand" | "iris" | "frost" | "neutral";
 
 const TONES: Record<BadgeTone, string> = {
   moss: "text-moss bg-moss/10 border-moss/25",
   ember: "text-ember bg-ember/10 border-ember/25",
   sand: "text-sand bg-sand/10 border-sand/25",
   iris: "text-iris bg-iris/10 border-iris/25",
-  glacier: "text-glacier bg-glacier/10 border-glacier/30",
+  frost: "text-frost bg-frost/10 border-frost/30",
   neutral: "text-ink-mid bg-white/[0.04] border-white/10",
 };
 

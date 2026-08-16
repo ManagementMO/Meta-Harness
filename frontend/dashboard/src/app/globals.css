@@ -13,16 +13,16 @@
   --color-ink-low: #5a6473;
   --color-ink-ghost: #39414d;
 
-  /* signature accent — glacier */
-  --color-glacier: #69e3d5;
-  --color-glacier-bright: #a7f3ea;
-  --color-glacier-dim: #2e8a81;
+  /* signature accent — frost: white light on black glass, nothing else */
+  --color-frost: #e8eef5;
+  --color-frost-bright: #ffffff;
+  --color-frost-dim: #b9c2cd;
 
-  /* semantic whisper tones */
-  --color-moss: #7fae93;
-  --color-ember: #c0808b;
-  --color-sand: #c2a97e;
-  --color-iris: #9d92c4;
+  /* semantic whisper tones — barely-there hue, reads monochrome at a glance */
+  --color-moss: #8ca396;
+  --color-ember: #b39199;
+  --color-sand: #b3a78f;
+  --color-iris: #9e9bb3;
 
   /* type */
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
@@ -58,7 +58,7 @@
   --ease-glass: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* glow */
-  --shadow-glacier-glow: 0 0 24px rgba(105, 227, 213, 0.12);
+  --shadow-frost-glow: 0 0 24px rgba(255, 255, 255, 0.12);
 }
 
 /* ── Base ── */
@@ -78,7 +78,7 @@ pre {
 }
 
 ::selection {
-  background: rgba(105, 227, 213, 0.22);
+  background: rgba(255, 255, 255, 0.22);
   color: var(--color-ink);
 }
 
@@ -88,7 +88,7 @@ pre {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-glacier);
+  outline: 2px solid var(--color-frost);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -100,7 +100,7 @@ pre {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(1200px 800px at 50% -10%, rgba(105, 227, 213, 0.05), transparent 60%),
+    radial-gradient(1200px 800px at 50% -10%, rgba(255, 255, 255, 0.05), transparent 60%),
     radial-gradient(900px 600px at 8% 110%, rgba(255, 255, 255, 0.025), transparent 55%),
     radial-gradient(ellipse 120% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.35) 100%);
 }
@@ -221,7 +221,7 @@ pre {
   background: linear-gradient(
     100deg,
     transparent 35%,
-    rgba(105, 227, 213, 0.08) 50%,
+    rgba(255, 255, 255, 0.08) 50%,
     transparent 65%
   );
   animation: spine-shimmer 700ms var(--ease-glass) forwards;
@@ -231,14 +231,14 @@ pre {
   from {
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      0 0 0 1px rgba(105, 227, 213, 0.35),
-      0 0 20px rgba(105, 227, 213, 0.1);
+      0 0 0 1px rgba(255, 255, 255, 0.35),
+      0 0 20px rgba(255, 255, 255, 0.1);
   }
   to {
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      0 0 0 1px rgba(105, 227, 213, 0),
-      0 0 20px rgba(105, 227, 213, 0);
+      0 0 0 1px rgba(255, 255, 255, 0),
+      0 0 20px rgba(255, 255, 255, 0);
   }
 }
 .flash-edge {

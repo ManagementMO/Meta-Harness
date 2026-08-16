@@ -36,23 +36,23 @@ export function PhasePipeline({
                   aria-hidden="true"
                   className={cn(
                     "block w-6 h-px mx-1.5 transition-colors duration-300",
-                    done || active ? "bg-glacier/40" : "bg-white/8",
+                    done || active ? "bg-frost/40" : "bg-white/8",
                   )}
                 />
               )}
               <span
                 className={cn(
                   "flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] whitespace-nowrap transition-colors duration-300",
-                  done ? "text-glacier" : active ? "text-glacier-bright" : "text-ink-ghost",
+                  done ? "text-frost" : active ? "text-frost-bright" : "text-ink-ghost",
                 )}
               >
                 <span
                   className={cn(
                     "flex items-center justify-center w-3.5 h-3.5 rounded-full border transition-colors duration-300",
                     done
-                      ? "border-glacier/50 bg-glacier/15"
+                      ? "border-frost/50 bg-frost/15"
                       : active
-                        ? "border-glacier/60 bg-glacier/10 animate-breathe"
+                        ? "border-frost/60 bg-frost/10 animate-breathe"
                         : "border-white/12 bg-transparent",
                   )}
                 >
@@ -78,14 +78,14 @@ export function PhasePipeline({
             <span
               className={cn(
                 "flex items-center gap-1 transition-colors duration-300",
-                done ? "text-ink-mid" : active ? "text-glacier" : "text-ink-ghost",
+                done ? "text-ink-mid" : active ? "text-frost" : "text-ink-ghost",
               )}
             >
               <span
                 aria-hidden="true"
                 className={cn(
                   "w-1 h-1 rounded-full",
-                  done ? "bg-moss" : active ? "bg-glacier animate-breathe" : "bg-white/12",
+                  done ? "bg-moss" : active ? "bg-frost animate-breathe" : "bg-white/12",
                 )}
               />
               {stage}

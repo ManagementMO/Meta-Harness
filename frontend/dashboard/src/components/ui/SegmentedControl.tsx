@@ -34,7 +34,7 @@ export function SegmentedControl<T extends string>({
               "h-6 px-2.5 rounded-[7px] font-mono text-[10px] uppercase tracking-[0.08em] cursor-pointer whitespace-nowrap",
               "transition-colors duration-150 ease-[var(--ease-glass)]",
               active
-                ? "glass-inset specular-top text-glacier-bright border-white/10"
+                ? "glass-inset specular-top text-frost-bright border-white/10"
                 : "text-ink-low hover:text-ink-mid",
             )}
           >

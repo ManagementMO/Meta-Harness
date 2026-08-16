@@ -54,9 +54,9 @@ export function TopBar({ onReplay }: { onReplay?: () => void }) {
       <div className="flex items-center gap-3 min-w-0">
         <Link
           href="/"
-          className="flex items-center gap-2 text-[13px] font-semibold tracking-[0.18em] text-ink hover:text-glacier-bright transition-colors duration-150"
+          className="flex items-center gap-2 text-[13px] font-semibold tracking-[0.18em] text-ink hover:text-frost-bright transition-colors duration-150"
         >
-          <span aria-hidden="true" className="w-1.5 h-1.5 bg-glacier shadow-[0_0_8px_rgba(105,227,213,0.5)]" />
+          <span aria-hidden="true" className="w-1.5 h-1.5 bg-frost shadow-[0_0_8px_rgba(255,255,255,0.35)]" />
           META-HARNESS
         </Link>
         {run && (
@@ -90,7 +90,7 @@ export function TopBar({ onReplay }: { onReplay?: () => void }) {
         )}
         <a
           href={profile ? "/auth/logout" : "/auth/login"}
-          className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-mid hover:text-glacier-bright transition-colors duration-150"
+          className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-mid hover:text-frost-bright transition-colors duration-150"
         >
           {profile ? <IconSignOut size={12} /> : <IconSignIn size={12} />}
           {profile ? "Logout" : "Login"}

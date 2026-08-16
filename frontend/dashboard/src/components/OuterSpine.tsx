@@ -69,7 +69,7 @@ export function OuterSpine() {
           ) : (
             <AnimatedNumber
               value={bestScore}
-              className={cn("text-[15px] font-medium", best ? "text-glacier-bright" : "text-ink")}
+              className={cn("text-[15px] font-medium", best ? "text-frost-bright" : "text-ink")}
             />
           )}
         </SpineStat>

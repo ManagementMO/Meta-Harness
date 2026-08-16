@@ -13,8 +13,8 @@ export type PillState =
 const STATES: Record<PillState, { label: string; dot: string; pill: string; breathe?: boolean }> = {
   live: {
     label: "Live",
-    dot: "bg-glacier shadow-[0_0_8px_rgba(105,227,213,0.6)]",
-    pill: "text-glacier-bright border-glacier/35 bg-glacier/10",
+    dot: "bg-frost shadow-[0_0_8px_rgba(255,255,255,0.4)]",
+    pill: "text-frost-bright border-frost/35 bg-frost/10",
     breathe: true,
   },
   reconnecting: {
