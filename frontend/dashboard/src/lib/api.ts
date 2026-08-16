@@ -19,7 +19,8 @@ export type RunListItem = {
   run_id: string;
   status: string;
   best_score: number | null;
-  iteration: number;
+  iteration?: number;
+  current_iteration?: number;
   mode?: "research" | "autonomous";
   synthetic?: boolean;
 };

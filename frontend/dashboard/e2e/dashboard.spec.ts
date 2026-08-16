@@ -23,8 +23,7 @@ test.describe('Dashboard (mock mode, no backend)', () => {
     const chartTab = page.getByRole('button', { name: /chart/i });
     await chartTab.click();
 
-    // ScoreChart circles have fill colors matching the whisper palette, not the dot-grid bg
-    const dataCircles = page.locator('svg circle[fill="#6a9e78"], svg circle[fill="#8878a8"], svg circle[fill="#b06068"]');
+    const dataCircles = page.getByTestId('chart-point');
     await expect(dataCircles.first()).toBeVisible({ timeout: 12_000 });
     expect(await dataCircles.count()).toBeGreaterThanOrEqual(1);
   });
@@ -56,8 +55,7 @@ test.describe('Dashboard (mock mode, no backend)', () => {
 
     await node.click({ button: 'right' });
 
-    // Use the modal title which has the fork symbol prefix
-    const modalTitle = page.locator('text=⑂ Create Fork');
+    const modalTitle = page.getByRole('heading', { name: 'Create fork' });
     await expect(modalTitle).toBeVisible({ timeout: 5_000 });
   });
 

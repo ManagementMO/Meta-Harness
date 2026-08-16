@@ -6,6 +6,7 @@ import { DashboardProvider, useDashboardDispatch } from '@/lib/state';
 import { startSSE, startMockSSE } from '@/lib/sse';
 import { fetchCheckpointCandidateMap, getRunDetail, isBackendAvailable, toRunInfo, toTreeNodesFromRunDetail } from '@/lib/api';
 import { TopBar } from '@/components/TopBar';
+import { OuterSpine } from '@/components/OuterSpine';
 import { TrajectoryTree } from '@/components/TrajectoryTree';
 import { DecisionLog } from '@/components/DecisionLog';
 import { ContextPanel } from '@/components/ContextPanel';
@@ -118,19 +119,14 @@ function DashboardShell() {
   }, [clearReplayTimers, connect]);
 
   return (
-    <div className="h-full flex flex-col bg-panel overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden">
       <TopBar onReplay={replayRunProgression} />
-      <div className="flex-1 flex gap-4 p-4 min-h-0 w-full">
-        <div className="w-[220px] shrink-0 flex flex-col min-h-0 min-w-0">
-          <TrajectoryTree />
-        </div>
-        <div className="flex-[4] flex flex-col min-h-0 min-w-0">
-          <DecisionLog />
-        </div>
-        <div className="flex-[3] flex flex-col min-h-0 min-w-0">
-          <ContextPanel />
-        </div>
-      </div>
+      <OuterSpine />
+      <main className="flex-1 grid gap-3 p-3 min-h-0 min-w-0 grid-cols-[15rem_minmax(0,1fr)_minmax(0,21.5rem)] xl:grid-cols-[20rem_minmax(0,1fr)_minmax(0,24rem)] 2xl:grid-cols-[22rem_minmax(0,1fr)_minmax(0,28rem)]">
+        <TrajectoryTree />
+        <DecisionLog />
+        <ContextPanel />
+      </main>
       <StatusBar />
     </div>
   );

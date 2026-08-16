@@ -1,63 +1,87 @@
-'use client';
-import { useRef, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import * as d3 from 'd3';
-import { useDashboard, useDashboardDispatch } from '@/lib/state';
-import { ForkModal } from './ForkModal';
-import { resolveCheckpointForNode } from '@/lib/api';
-import type { TreeNode } from '@/lib/types';
+"use client";
 
-const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }> = {
-  seed: { border: '#32323e', bg: '#16161e', text: '#c8c8d0' },
-  accepted: { border: '#6a9e78', bg: '#111816', text: '#c8c8d0' },
-  rejected: { border: '#b06068', bg: '#181114', text: '#c8c8d0' },
-  best: { border: '#7ab8ad', bg: '#111616', text: '#c8c8d0' },
-  fork: { border: '#8878a8', bg: '#141218', text: '#c8c8d0' },
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "next/navigation";
+import {
+  Background,
+  BackgroundVariant,
+  BaseEdge,
+  Controls,
+  Handle,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  getSmoothStepPath,
+  useReactFlow,
+  type Edge,
+  type EdgeProps,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { useDashboard, useDashboardDispatch } from "@/lib/state";
+import { ForkModal } from "./ForkModal";
+import { resolveCheckpointForNode } from "@/lib/api";
+import { GlassPanel, PanelHeader, PanelTitle } from "./ui/GlassPanel";
+import { EmptyState } from "./ui/EmptyState";
+import { IconGitBranch, IconTreeStructure } from "./ui/icons";
+import { cn } from "@/lib/cn";
+import type { TreeNode } from "@/lib/types";
+
+const NODE_W = 188;
+const NODE_H = 72;
+const GAP_X = 24;
+const GAP_Y = 40;
+
+type ForkTarget = { candidate: string; checkpointId: string; parentThreadId?: string };
+
+type CandidateData = {
+  node: TreeNode;
+  isSelected: boolean;
+  onFork: (node: TreeNode) => void;
+  onSelect: (node: TreeNode) => void;
+  [key: string]: unknown;
 };
 
-const NODE_W = 200;
-const NODE_H = 72;
-const GAP_Y = 32;
-const GAP_X = 16;
+type CandidateNode = Node<CandidateData, "candidate">;
 
-type LayoutNode = TreeNode & { x: number; y: number };
+type EdgeTone = "seed" | "accepted" | "rejected" | "fork" | "best";
+
+type TraceData = { tone: EdgeTone; [key: string]: unknown };
+type TraceEdgeType = Edge<TraceData, "trace">;
 
 function nodeKey(node: TreeNode): string {
   return node.candidateId ?? node.candidate;
 }
 
-function layoutTree(nodes: TreeNode[]): LayoutNode[] {
-  if (nodes.length === 0) return [];
+function layoutTree(nodes: TreeNode[]): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>();
+  if (nodes.length === 0) return positions;
 
-  const byKey = new Map(nodes.map(node => [nodeKey(node), node]));
-  const root = nodes.find(node => !node.parent_candidate_name && !node.parentIds?.length);
-  if (!root) return [];
+  const byKey = new Map(nodes.map((node) => [nodeKey(node), node]));
+  const root = nodes.find((node) => !node.parent_candidate_name && !node.parentIds?.length);
+  if (!root) return positions;
 
-  const laid: LayoutNode[] = [];
   const colWidth = NODE_W + GAP_X;
 
   function place(key: string, depth: number, column: number) {
     const node = byKey.get(key);
-    if (!node) return;
+    if (!node || positions.has(key)) return;
 
-    laid.push({
-      ...node,
-      x: column * colWidth,
-      y: depth * (NODE_H + GAP_Y),
-    });
+    positions.set(key, { x: column * colWidth, y: depth * (NODE_H + GAP_Y) });
 
-    const children = nodes.filter(child =>
-      child.parentIds?.includes(key) ||
-      (!child.parentIds?.length && child.parent_candidate_name === node.candidate)
+    const children = nodes.filter(
+      (child) =>
+        child.parentIds?.includes(key) ||
+        (!child.parentIds?.length && child.parent_candidate_name === node.candidate),
     );
     if (children.length === 1) {
       place(nodeKey(children[0]), depth + 1, column);
     } else if (children.length > 1) {
-      const mainChildren = children.filter(c => !c.isForkBranch && c.status !== 'rejected');
-      const forkChildren = children.filter(c => c.isForkBranch);
-      const rejectedChildren = children.filter(c => c.status === 'rejected');
+      const mainChildren = children.filter((c) => !c.isForkBranch && c.status !== "rejected");
+      const forkChildren = children.filter((c) => c.isForkBranch);
+      const rejectedChildren = children.filter((c) => c.status === "rejected" && !c.isForkBranch);
       const ordered = [...mainChildren, ...forkChildren, ...rejectedChildren];
-
       ordered.forEach((child, i) => {
         place(nodeKey(child), depth + 1, column + i);
       });
@@ -65,16 +89,169 @@ function layoutTree(nodes: TreeNode[]): LayoutNode[] {
   }
 
   place(nodeKey(root), 0, 0);
-  return laid;
+  return positions;
 }
 
-export function TrajectoryTree() {
+/** Candidate lineage of the current best — the path that traces with light. */
+function bestLineage(nodes: TreeNode[]): Set<string> {
+  const byKey = new Map(nodes.map((node) => [nodeKey(node), node]));
+  const byName = new Map(nodes.map((node) => [node.candidate, node]));
+  const lineage = new Set<string>();
+  let cursor = nodes.find((n) => n.status === "best");
+  let guard = 0;
+  while (cursor && guard < 64) {
+    lineage.add(nodeKey(cursor));
+    const parent = cursor.parentIds?.[0]
+      ? byKey.get(cursor.parentIds[0])
+      : cursor.parent_candidate_name
+        ? byName.get(cursor.parent_candidate_name)
+        : undefined;
+    cursor = parent;
+    guard += 1;
+  }
+  return lineage;
+}
+
+const STATUS_META: Record<
+  TreeNode["status"],
+  { border: string; label: string | null; labelClass: string; score: string }
+> = {
+  seed: { border: "border-white/12", label: "SEED", labelClass: "text-ink-ghost", score: "text-ink" },
+  accepted: { border: "border-moss/35", label: "ACCEPTED", labelClass: "text-moss", score: "text-moss" },
+  rejected: { border: "border-ember/30", label: "REJECTED", labelClass: "text-ember", score: "text-ember" },
+  best: { border: "border-frost/60", label: "BEST", labelClass: "text-frost-bright", score: "text-frost-bright" },
+  fork: { border: "border-iris/35", label: "FORK", labelClass: "text-iris", score: "text-iris" },
+};
+
+const CandidateNodeView = memo(function CandidateNodeView({ data }: NodeProps<CandidateNode>) {
+  const { node, isSelected, onFork, onSelect } = data;
+  const meta = STATUS_META[node.status] ?? STATUS_META.seed;
+
+  return (
+    <div
+      data-testid="trajectory-node"
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={`${node.candidate}, iteration ${node.iteration}, ${node.status}, accuracy ${node.scores.accuracy.toFixed(2)}`}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(node);
+        }
+      }}
+      className={cn(
+        "node-in group relative rounded-[10px] border bg-node specular-top cursor-pointer select-none",
+        "transition-[border-color,box-shadow,opacity] duration-200 ease-[var(--ease-glass)]",
+        meta.border,
+        node.status === "rejected" && "opacity-45 hover:opacity-80 focus-within:opacity-80",
+        node.status === "best" && "shadow-[0_0_24px_rgba(255,255,255,0.10)]",
+        isSelected && "border-frost/80 shadow-[0_0_0_1px_rgba(232,238,245,0.35),0_0_20px_rgba(255,255,255,0.08)]",
+      )}
+      style={{ width: NODE_W, height: NODE_H }}
+    >
+      <Handle type="target" position={Position.Top} className="!opacity-0 !pointer-events-none !w-px !h-px !min-w-0 !min-h-0 !border-0 !bg-transparent" />
+      <Handle type="source" position={Position.Bottom} className="!opacity-0 !pointer-events-none !w-px !h-px !min-w-0 !min-h-0 !border-0 !bg-transparent" />
+
+      <div className="px-3 pt-2 flex items-start justify-between gap-2">
+        <span className="font-mono text-[9px] tracking-[0.12em] text-ink-low">
+          ITER {node.iteration}
+          {node.isForkBranch ? "′" : ""}
+        </span>
+        {meta.label && node.status !== "seed" && (
+          <span className={cn("font-mono text-[8.5px] tracking-[0.14em] font-medium", meta.labelClass)}>
+            {meta.label}
+          </span>
+        )}
+      </div>
+
+      <div className="px-3 mt-0.5 font-mono text-[11px] leading-[1.35] text-ink truncate" title={node.candidate}>
+        {node.candidate}
+      </div>
+
+      <div className="px-3 mt-1 flex items-baseline gap-2 font-mono tabular-nums">
+        <span className={cn("text-[14px] font-medium", meta.score)}>{node.scores.accuracy.toFixed(2)}</span>
+        {node.delta !== null && (
+          <span className={cn("text-[9.5px]", node.delta >= 0 ? "text-moss" : "text-ember")}>
+            {node.delta >= 0 ? "+" : ""}
+            {node.delta.toFixed(2)}
+          </span>
+        )}
+        {node.scores.synthetic && <span className="text-[8.5px] text-sand tracking-[0.1em]">SYN</span>}
+      </div>
+
+      <button
+        aria-label={`Fork from ${node.candidate}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onFork(node);
+        }}
+        className={cn(
+          "absolute right-2 bottom-2 flex items-center justify-center w-6 h-5 rounded-[5px]",
+          "border border-iris/30 bg-iris/10 text-iris opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+          "transition-opacity duration-150 cursor-pointer hover:bg-iris/20",
+        )}
+      >
+        <IconGitBranch size={11} />
+      </button>
+    </div>
+  );
+});
+
+const EDGE_STYLE: Record<EdgeTone, { stroke: string; opacity: number; width: number; glow?: boolean }> = {
+  seed: { stroke: "rgba(233,237,242,0.18)", opacity: 1, width: 1.25 },
+  accepted: { stroke: "rgba(233,237,242,0.34)", opacity: 1, width: 1.25 },
+  rejected: { stroke: "rgba(179,145,153,0.3)", opacity: 1, width: 1.25 },
+  fork: { stroke: "rgba(158,155,179,0.45)", opacity: 1, width: 1.25 },
+  best: { stroke: "rgba(255,255,255,0.75)", opacity: 1, width: 1.5, glow: true },
+};
+
+const TraceEdgeView = memo(function TraceEdgeView({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+}: EdgeProps<TraceEdgeType>) {
+  const [path] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    borderRadius: 10,
+  });
+  const style = EDGE_STYLE[data?.tone ?? "seed"];
+  return (
+    <BaseEdge
+      path={path}
+      className="trace-edge"
+      pathLength={1}
+      style={{
+        stroke: style.stroke,
+        strokeWidth: style.width,
+        opacity: style.opacity,
+        filter: style.glow ? "drop-shadow(0 0 4px rgba(255,255,255,0.35))" : undefined,
+      }}
+    />
+  );
+});
+
+const nodeTypes = { candidate: CandidateNodeView };
+const edgeTypes = { trace: TraceEdgeView };
+
+function TrajectoryFlow() {
   const params = useParams<{ run_id: string }>();
-  const svgRef = useRef<SVGSVGElement>(null);
   const { tree, selectedNode, forkEvents, mode, run } = useDashboard();
   const dispatch = useDashboardDispatch();
-  const [forkTarget, setForkTarget] = useState<{ candidate: string; checkpointId: string; parentThreadId?: string } | null>(null);
+  const [forkTarget, setForkTarget] = useState<ForkTarget | null>(null);
+  const { fitView, getViewport, setCenter } = useReactFlow();
+  const fitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // When a fork lands, focus its branch node.
   useEffect(() => {
     const latestFork = forkEvents.at(-1);
     if (!latestFork) return;
@@ -82,315 +259,230 @@ export function TrajectoryTree() {
     const normalizedBranchId = rawBranchId.replace(/^fork\./, "");
     const branchNode = tree.find((node) => {
       const threadId = node.threadId ?? "";
-      return (
-        threadId.includes(`.fork.${normalizedBranchId}`) ||
-        threadId.includes(rawBranchId)
-      );
+      return threadId.includes(`.fork.${normalizedBranchId}`) || threadId.includes(rawBranchId);
     });
     if (!branchNode || selectedNode === nodeKey(branchNode)) return;
-    dispatch({ type: 'SELECT_NODE', payload: nodeKey(branchNode) });
+    dispatch({ type: "SELECT_NODE", payload: nodeKey(branchNode) });
   }, [tree, forkEvents, selectedNode, dispatch]);
 
-  useEffect(() => {
-    if (!svgRef.current || tree.length === 0) return;
+  const requestFork = useCallback(
+    async (node: TreeNode) => {
+      let checkpointId = node.checkpointId ?? undefined;
+      if (!checkpointId && mode === "mock") {
+        checkpointId = run?.checkpointId ?? undefined;
+      }
+      if (!checkpointId && mode === "live") {
+        const resolved = await resolveCheckpointForNode(params.run_id, {
+          candidate: node.candidate,
+          candidateId: node.candidateId,
+          iteration: node.iteration,
+          threadId: node.threadId,
+        }).catch(() => null);
+        checkpointId = resolved ?? undefined;
+        if (checkpointId) {
+          dispatch({
+            type: "SET_CHECKPOINT_ID",
+            payload: { candidate: nodeKey(node), checkpointId },
+          });
+        }
+      }
+      if (!checkpointId) {
+        dispatch({
+          type: "ADD_LOG_ENTRY",
+          payload: {
+            id: `fork-pending-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            tag: "fork",
+            text: `${node.candidate} has no checkpoint yet; this candidate may not be persisted in checkpoints yet`,
+            candidateName: node.candidate,
+          },
+        });
+        return;
+      }
+      setForkTarget({
+        candidate: node.candidate,
+        checkpointId,
+        parentThreadId: node.threadId,
+      });
+    },
+    [dispatch, mode, params.run_id, run?.checkpointId],
+  );
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const selectCandidate = useCallback(
+    (node: TreeNode) => dispatch({ type: "SELECT_NODE", payload: nodeKey(node) }),
+    [dispatch],
+  );
 
-    const laid = layoutTree(tree);
-    if (laid.length === 0) return;
+  const { nodes, edges } = useMemo(() => {
+    const positions = layoutTree(tree);
+    const lineage = bestLineage(tree);
+    const byKey = new Map(tree.map((node) => [nodeKey(node), node]));
+    const byName = new Map(tree.map((node) => [node.candidate, node]));
 
-    const byKey = new Map(laid.map(node => [nodeKey(node), node]));
-
-    const maxX = Math.max(...laid.map(n => n.x)) + NODE_W + 30;
-
-    // Dot grid background
-    const defs = svg.append('defs');
-    defs.append('pattern')
-      .attr('id', 'dot-grid')
-      .attr('width', 24)
-      .attr('height', 24)
-      .attr('patternUnits', 'userSpaceOnUse')
-      .append('circle')
-      .attr('cx', 12)
-      .attr('cy', 12)
-      .attr('r', 1.2)
-      .attr('fill', '#1c1c26');
-
-    svg.append('rect')
-      .attr('width', '100%')
-      .attr('height', '100%')
-      .attr('fill', 'url(#dot-grid)');
-
-    const g = svg.append('g');
-
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.3, 3])
-      .on('zoom', (event) => {
-        g.attr('transform', event.transform.toString());
+    const nodes: CandidateNode[] = tree
+      .filter((node) => positions.has(nodeKey(node)))
+      .map((node) => {
+        const key = nodeKey(node);
+        const pos = positions.get(key)!;
+        return {
+          id: key,
+          type: "candidate" as const,
+          position: pos,
+          width: NODE_W,
+          height: NODE_H,
+          data: {
+            node,
+            isSelected: selectedNode === key,
+            onFork: requestFork,
+            onSelect: selectCandidate,
+          },
+        };
       });
 
-    svg.call(zoom);
-
-    const containerWidth = svgRef.current.clientWidth || 400;
-    const padding = 20;
-    const initialScale = Math.min((containerWidth - padding * 2) / maxX, 1.5);
-    const tx = (containerWidth - maxX * initialScale) / 2;
-    const ty = padding;
-    const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(initialScale);
-    svg.call(zoom.transform, initialTransform);
-
-    // Draw edges
-    for (const node of laid) {
+    const edges: TraceEdgeType[] = [];
+    for (const node of tree) {
+      const key = nodeKey(node);
+      if (!positions.has(key)) continue;
       const parent = node.parentIds?.[0]
         ? byKey.get(node.parentIds[0])
-        : laid.find(value => value.candidate === node.parent_candidate_name);
+        : node.parent_candidate_name
+          ? byName.get(node.parent_candidate_name)
+          : undefined;
       if (!parent) continue;
+      const parentKey = nodeKey(parent);
+      if (!positions.has(parentKey)) continue;
 
-      const color = node.isForkBranch ? '#8878a8' : node.status === 'rejected' ? '#b06068' : '#6a9e78';
-      g.append('line')
-        .attr('x1', parent.x + NODE_W / 2)
-        .attr('y1', parent.y + NODE_H)
-        .attr('x2', node.x + NODE_W / 2)
-        .attr('y2', node.y)
-        .attr('stroke', color)
-        .attr('stroke-width', 1.5)
-        .attr('opacity', node.status === 'rejected' ? 0.35 : 0.6);
+      const tone: EdgeTone =
+        lineage.has(key) && lineage.has(parentKey)
+          ? "best"
+          : node.isForkBranch
+            ? "fork"
+            : node.status === "rejected"
+              ? "rejected"
+              : node.status === "accepted"
+                ? "accepted"
+                : "seed";
+
+      edges.push({
+        id: `${parentKey}->${key}`,
+        source: parentKey,
+        target: key,
+        type: "trace" as const,
+        data: { tone },
+      });
     }
+    return { nodes, edges };
+  }, [tree, selectedNode, requestFork, selectCandidate]);
 
-    // Fork zone
-    if (forkEvents.length > 0) {
-      const forkNode = laid.find(n => n.candidate === forkEvents[0].parentCandidate);
-      if (forkNode) {
-        const zy = forkNode.y + NODE_H + GAP_Y / 2 - 12;
-        g.append('rect')
-          .attr('x', 0).attr('y', zy)
-          .attr('width', maxX - 30).attr('height', 24)
-          .attr('fill', '#8878a8').attr('opacity', 0.06)
-          .attr('rx', 4);
-        g.append('text')
-          .attr('x', (maxX - 30) / 2).attr('y', zy + 16)
-          .attr('text-anchor', 'middle')
-          .attr('fill', '#707084').attr('font-size', 9)
-          .attr('font-family', 'monospace')
-          .text('⑂ FORK');
-      }
-    }
+  // Refit as the tree grows — debounced so streams don't thrash the camera.
+  // Never fit below readable zoom: clamp to 0.82 and keep the focus node in
+  // frame while showing as much of the tree as the panel allows.
+  const nodesRef = useRef(nodes);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    if (fitTimer.current) clearTimeout(fitTimer.current);
+    fitTimer.current = setTimeout(async () => {
+      await fitView({ padding: 0.15, maxZoom: 1.05, duration: 300 });
+      const { zoom } = getViewport();
+      const el = canvasRef.current;
+      if (zoom >= 0.72 || !el) return;
 
-    // Draw nodes
-    for (const node of laid) {
-      const style = STATUS_STYLES[node.status] || STATUS_STYLES.seed;
-      const isSelected = selectedNode === nodeKey(node);
-      const opacity = node.status === 'rejected' ? 0.35 : 1;
+      const latest = nodesRef.current;
+      const focus =
+        latest.find((n) => n.data.isSelected) ??
+        latest.find((n) => n.data.node.status === "best") ??
+        latest[latest.length - 1];
+      if (!focus) return;
 
-      const nodeG = g.append('g')
-        .attr('transform', `translate(${node.x}, ${node.y})`)
-        .attr('opacity', opacity)
-        .attr('cursor', 'pointer')
-        .attr('data-testid', 'trajectory-node')
-        .on('click', () => dispatch({ type: 'SELECT_NODE', payload: nodeKey(node) }))
-        .on('contextmenu', async (event: MouseEvent) => {
-          event.preventDefault();
-          let checkpointId = node.checkpointId ?? undefined;
-          if (!checkpointId && mode === 'mock') {
-            checkpointId = run?.checkpointId ?? undefined;
-          }
-          if (!checkpointId && mode === 'live') {
-            const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
-              candidate: node.candidate,
-              candidateId: node.candidateId,
-              iteration: node.iteration,
-              threadId: node.threadId,
-            }).catch(() => null);
-            checkpointId = resolvedCheckpointId ?? undefined;
-            if (checkpointId) {
-              dispatch({
-                type: 'SET_CHECKPOINT_ID',
-                payload: { candidate: nodeKey(node), checkpointId },
-              });
-            }
-          }
-          if (!checkpointId) {
-            dispatch({
-              type: 'ADD_LOG_ENTRY',
-              payload: {
-                id: `fork-pending-${Date.now()}`,
-                timestamp: new Date().toISOString(),
-                tag: 'fork',
-                text: `${node.candidate} has no checkpoint yet; this candidate may not be persisted in checkpoints yet`,
-                candidateName: node.candidate,
-              },
-            });
-            return;
-          }
-          setForkTarget({
-            candidate: node.candidate,
-            checkpointId,
-            parentThreadId: node.threadId,
-          });
-        });
+      const targetZoom = 0.82;
+      const viewW = el.clientWidth / targetZoom;
+      const viewH = el.clientHeight / targetZoom;
+      const minX = Math.min(...latest.map((n) => n.position.x));
+      const maxX = Math.max(...latest.map((n) => n.position.x + NODE_W));
+      const minY = Math.min(...latest.map((n) => n.position.y));
+      const maxY = Math.max(...latest.map((n) => n.position.y + NODE_H));
 
-      // Best glow
-      if (node.status === 'best') {
-        nodeG.append('rect')
-          .attr('x', -4).attr('y', -4)
-          .attr('width', NODE_W + 8).attr('height', NODE_H + 8)
-          .attr('rx', 8).attr('fill', '#7ab8ad').attr('opacity', 0.08);
-      }
+      const clampCenter = (focusC: number, min: number, max: number, view: number) =>
+        max - min <= view
+          ? min + (max - min) / 2
+          : Math.min(Math.max(focusC, min + view / 2), max - view / 2);
 
-      // Background
-      nodeG.append('rect')
-        .attr('width', NODE_W).attr('height', NODE_H)
-        .attr('rx', 4).attr('fill', style.bg)
-        .attr('stroke', isSelected ? '#7ab8ad' : style.border)
-        .attr('stroke-width', isSelected ? 2 : 1);
+      void setCenter(
+        clampCenter(focus.position.x + NODE_W / 2, minX, maxX, viewW),
+        clampCenter(focus.position.y + NODE_H / 2, minY, maxY, viewH),
+        { zoom: targetZoom, duration: 300 },
+      );
+    }, 140);
+    return () => {
+      if (fitTimer.current) clearTimeout(fitTimer.current);
+    };
+  }, [nodes.length, fitView, getViewport, setCenter]);
 
-      // Iteration label
-      nodeG.append('text')
-        .attr('x', 10).attr('y', 16)
-        .attr('fill', '#303040').attr('font-size', 8)
-        .attr('font-family', 'monospace')
-        .text(`ITER ${node.iteration}${node.isForkBranch ? "'" : ''}`);
-
-      // Candidate name
-      nodeG.append('text')
-        .attr('x', 10).attr('y', 34)
-        .attr('fill', style.text).attr('font-size', 12)
-        .attr('font-family', 'monospace')
-        .attr('font-weight', 500)
-        .text(node.candidate.length > 22 ? node.candidate.slice(0, 22) + '…' : node.candidate);
-
-      // Score
-      nodeG.append('text')
-        .attr('x', 10).attr('y', 56)
-        .attr('fill', style.border).attr('font-size', 15)
-        .attr('font-family', 'monospace')
-        .attr('font-weight', 600)
-        .text(node.scores.accuracy.toFixed(2));
-
-      // Delta
-      if (node.delta !== null) {
-        const deltaColor = node.delta >= 0 ? '#6a9e78' : '#b06068';
-        const deltaText = node.delta >= 0 ? `+${node.delta.toFixed(2)}` : node.delta.toFixed(2);
-        nodeG.append('text')
-          .attr('x', 58).attr('y', 56)
-          .attr('fill', deltaColor).attr('font-size', 10)
-          .attr('font-family', 'monospace')
-          .text(deltaText);
-      }
-
-      // Status badge
-      if (node.status === 'best') {
-        nodeG.append('text')
-          .attr('x', NODE_W - 10).attr('y', 16)
-          .attr('text-anchor', 'end')
-          .attr('fill', '#7ab8ad').attr('font-size', 8)
-          .attr('font-family', 'monospace')
-          .attr('font-weight', 600)
-          .text('★ BEST');
-      } else if (node.status === 'rejected') {
-        nodeG.append('text')
-          .attr('x', NODE_W - 10).attr('y', 16)
-          .attr('text-anchor', 'end')
-          .attr('fill', '#b06068').attr('font-size', 8)
-          .attr('font-family', 'monospace')
-          .attr('font-weight', 600)
-          .text('REJECTED');
-      } else if (node.status === 'accepted') {
-        nodeG.append('text')
-          .attr('x', NODE_W - 10).attr('y', 16)
-          .attr('text-anchor', 'end')
-          .attr('fill', '#6a9e78').attr('font-size', 8)
-          .attr('font-family', 'monospace')
-          .attr('font-weight', 600)
-          .text('ACCEPTED');
-      }
-
-      // Fork button (visible on hover)
-      const forkBtn = nodeG.append('g')
-        .attr('transform', `translate(${NODE_W - 28}, ${NODE_H - 22})`)
-        .attr('opacity', 0)
-        .attr('cursor', 'pointer')
-        .on('click', async (event: MouseEvent) => {
-          event.stopPropagation();
-          let checkpointId = node.checkpointId ?? undefined;
-          if (!checkpointId && mode === 'mock') {
-            checkpointId = run?.checkpointId ?? undefined;
-          }
-          if (!checkpointId && mode === 'live') {
-            const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
-              candidate: node.candidate,
-              candidateId: node.candidateId,
-              iteration: node.iteration,
-              threadId: node.threadId,
-            }).catch(() => null);
-            checkpointId = resolvedCheckpointId ?? undefined;
-            if (checkpointId) {
-              dispatch({
-                type: 'SET_CHECKPOINT_ID',
-                payload: { candidate: nodeKey(node), checkpointId },
-              });
-            }
-          }
-          if (!checkpointId) {
-            dispatch({
-              type: 'ADD_LOG_ENTRY',
-              payload: {
-                id: `fork-pending-${Date.now()}`,
-                timestamp: new Date().toISOString(),
-                tag: 'fork',
-                text: `${node.candidate} has no checkpoint yet; this candidate may not be persisted in checkpoints yet`,
-                candidateName: node.candidate,
-              },
-            });
-            return;
-          }
-          setForkTarget({
-            candidate: node.candidate,
-            checkpointId,
-            parentThreadId: node.threadId,
-          });
-        });
-
-      forkBtn.append('rect')
-        .attr('width', 22).attr('height', 16)
-        .attr('rx', 3)
-        .attr('fill', '#8878a8').attr('opacity', 0.15)
-        .attr('stroke', '#8878a8').attr('stroke-width', 0.5);
-
-      forkBtn.append('text')
-        .attr('x', 11).attr('y', 12)
-        .attr('text-anchor', 'middle')
-        .attr('fill', '#8878a8').attr('font-size', 10)
-        .attr('font-family', 'monospace')
-        .text('⑂');
-
-      nodeG
-        .on('mouseenter', function () {
-          forkBtn.transition().duration(150).attr('opacity', 1);
-        })
-        .on('mouseleave', function () {
-          forkBtn.transition().duration(150).attr('opacity', 0);
-        });
-    }
-  }, [tree, selectedNode, forkEvents, mode, run?.checkpointId, dispatch, params.run_id]);
+  // Bring a newly selected candidate into view — without yanking the camera
+  // when it is already visible.
+  useEffect(() => {
+    if (!selectedNode) return;
+    const el = canvasRef.current;
+    if (!el) return;
+    const focus = nodesRef.current.find((n) => n.id === selectedNode);
+    if (!focus) return;
+    const { x, y, zoom } = getViewport();
+    const viewMinX = -x / zoom;
+    const viewMinY = -y / zoom;
+    const viewMaxX = viewMinX + el.clientWidth / zoom;
+    const viewMaxY = viewMinY + el.clientHeight / zoom;
+    const pad = 8;
+    const inside =
+      focus.position.x >= viewMinX + pad &&
+      focus.position.x + NODE_W <= viewMaxX - pad &&
+      focus.position.y >= viewMinY + pad &&
+      focus.position.y + NODE_H <= viewMaxY - pad;
+    if (inside) return;
+    void setCenter(focus.position.x + NODE_W / 2, focus.position.y + NODE_H / 2, {
+      zoom: Math.max(zoom, 0.82),
+      duration: 300,
+    });
+  }, [selectedNode, getViewport, setCenter]);
 
   return (
     <>
-      <div className="flex-1 flex flex-col bg-panel rounded overflow-hidden min-h-0">
-        <div className="h-11 flex items-center px-6 bg-header border-b border-border shrink-0">
-          <span className="text-[10px] font-semibold text-text-hi uppercase tracking-wide">◆ Trajectory</span>
-        </div>
-        <div className="flex-1 overflow-hidden relative">
-          {tree.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center px-4 text-center">
-              <div className="rounded border border-border bg-header/70 px-3 py-2 text-[10px] text-text-mid uppercase tracking-wide">
-                Waiting for first candidate graph node...
-              </div>
-            </div>
-          )}
-          <svg ref={svgRef} className="w-full h-full" />
-        </div>
+      <div ref={canvasRef} className="flex-1 min-h-0 relative">
+        {tree.length === 0 && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center">
+            <EmptyState icon={<IconTreeStructure size={20} />} title="Awaiting first candidate">
+              The evolution tree draws itself as candidates stream in.
+            </EmptyState>
+          </div>
+        )}
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeClick={(_, flowNode) => dispatch({ type: "SELECT_NODE", payload: flowNode.id })}
+          onNodeContextMenu={(event, flowNode) => {
+            event.preventDefault();
+            const data = flowNode.data as CandidateData;
+            void requestFork(data.node);
+          }}
+          fitView
+          fitViewOptions={{ padding: 0.18, maxZoom: 1.1 }}
+          minZoom={0.25}
+          maxZoom={1.75}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
+          proOptions={{ hideAttribution: true }}
+          className="!bg-transparent"
+        >
+          <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="rgba(255,255,255,0.05)" />
+          <Controls position="bottom-right" showInteractive={false} />
+        </ReactFlow>
       </div>
       {forkTarget && (
         <ForkModal
@@ -401,5 +493,22 @@ export function TrajectoryTree() {
         />
       )}
     </>
+  );
+}
+
+export function TrajectoryTree() {
+  const { tree } = useDashboard();
+  return (
+    <GlassPanel>
+      <PanelHeader>
+        <PanelTitle icon={<IconTreeStructure size={13} />}>Trajectory</PanelTitle>
+        <span className="ml-auto font-mono text-[10px] tabular-nums text-ink-ghost">
+          {tree.length} candidates
+        </span>
+      </PanelHeader>
+      <ReactFlowProvider>
+        <TrajectoryFlow />
+      </ReactFlowProvider>
+    </GlassPanel>
   );
 }
