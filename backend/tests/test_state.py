@@ -2,27 +2,22 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from app.meta_harness.contracts import CandidateRecord, CandidateStatus
+from app.meta_harness.state import CodingAgentState, MetaHarnessState
 
-from app.meta_harness.state import Candidate, CodingAgentState, MetaHarnessState
 
-
-def test_candidate_dataclass_minimal_construction(tmp_path: Path):
-    c = Candidate(
+def test_candidate_record_serializes_at_checkpoint_boundary():
+    candidate = CandidateRecord(
+        candidate_id="cand_0123456789abcdef",
         name="baseline",
-        import_path="agents.baseline:BaselineHarness",
-        parent=None,
-        hypothesis="starting point",
-        axis="exploration",
-        expected_score_delta=None,
+        artifact_path="candidates/cand_0123456789abcdef/candidate.json",
+        status=CandidateStatus.PENDING,
         iteration=0,
-        traces_dir=tmp_path / "candidates" / "baseline" / "traces",
     )
-    assert c.status == "pending"
-    assert c.scores is None
-    assert c.delta is None
-    assert c.cost_usd is None
-    assert isinstance(c.traces_dir, Path)
+    serialized = candidate.model_dump(mode="json")
+    assert serialized["candidate_id"] == "cand_0123456789abcdef"
+    assert serialized["status"] == "pending"
+    assert serialized["scores"] is None
 
 
 def test_meta_harness_state_typed_dict_keys():

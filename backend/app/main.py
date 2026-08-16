@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api import branches, checkpoints, events, forks, memory, runs
+from app.api import branches, checkpoints, events, forks, memory, refinements, runs
 from app.api.runs import cancel_active_runs
 from app.meta_harness.branches import cancel_all_branches
 from app.meta_harness.memory import memory_store as memory_store_cm
@@ -118,6 +118,13 @@ def create_app(
             "status": "ok",
             "version": __version__,
             "persistence": app.state.persistence_backend,
+            "durability": (
+                "durable-checkpoints"
+                if app.state.persistence_backend == "postgres"
+                else "degraded-process-local-checkpoints"
+            ),
+            "security_profile": "trusted-local-process-isolation",
+            "authentication": "none",
         }
 
     app.include_router(runs.router)
@@ -126,6 +133,7 @@ def create_app(
     app.include_router(branches.router)
     app.include_router(events.router)
     app.include_router(memory.router)
+    app.include_router(refinements.router)
     return app
 
 

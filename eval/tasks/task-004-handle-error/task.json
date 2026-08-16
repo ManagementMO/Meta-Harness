@@ -3,6 +3,7 @@
   "tier": "robustness",
   "instruction": "parse_ages in parser.py crashes on (a) empty input '' (raises ValueError on int('')) and (b) invalid integer tokens like 'abc'. Modify parse_ages so: empty input returns []; pure-whitespace input returns []; invalid tokens are silently skipped; negative integers like '-5' parse correctly; decimal tokens like '1.5' are skipped (NOT converted with float()); valid integers are still parsed correctly. All tests in tests/test_parser.py must pass without breaking the happy path.",
   "test_command": "pytest tests/test_parser.py -q",
+  "runtime_adapter": "python-pytest-v1",
   "expected_files_changed": ["parser.py"],
   "baseline_pass_rate": 0.60,
   "best_known_pass_rate": 0.85,

@@ -18,8 +18,10 @@ from typing import Any
 
 def dominates(a: dict[str, Any], b: dict[str, Any]) -> bool:
     """Return True iff candidate ``a`` dominates ``b`` on (accuracy, tokens)."""
-    a_acc, a_tok = a["accuracy"], a["avg_tokens"]
-    b_acc, b_tok = b["accuracy"], b["avg_tokens"]
+    a_acc, a_tok = a["accuracy"], a.get("avg_tokens")
+    b_acc, b_tok = b["accuracy"], b.get("avg_tokens")
+    if a_tok is None or b_tok is None:
+        return a_acc > b_acc
     if a_acc < b_acc or a_tok > b_tok:
         return False
     return a_acc > b_acc or a_tok < b_tok
@@ -50,7 +52,13 @@ def best_candidate(
     """Highest-accuracy candidate; ties broken by lowest avg_tokens."""
     if not candidates:
         return None
-    return max(candidates, key=lambda c: (c["accuracy"], -c["avg_tokens"]))
+    return max(
+        candidates,
+        key=lambda c: (
+            c["accuracy"],
+            -(c.get("avg_tokens") if c.get("avg_tokens") is not None else float("inf")),
+        ),
+    )
 
 
 def build_frontier_val(
@@ -64,6 +72,19 @@ def build_frontier_val(
         "iteration": iteration,
         "candidates": annotated,
         "_pareto_names": pareto_names(annotated),
+        "_pareto_ids": [
+            candidate.get("candidate_id", candidate["name"])
+            for candidate in annotated
+            if not candidate.get("dominated_by_names")
+        ],
         "_best": best_candidate(annotated),
+        "objectives": {
+            "accuracy": "maximize",
+            "avg_tokens": (
+                "minimize"
+                if annotated and all(c.get("avg_tokens") is not None for c in annotated)
+                else "unknown"
+            ),
+        },
         "per_task": per_task_bests,
     }

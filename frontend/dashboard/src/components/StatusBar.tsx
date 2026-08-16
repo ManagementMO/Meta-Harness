@@ -11,9 +11,11 @@ export function StatusBar() {
         <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-green' : 'bg-red'}`} />
         {sseConnected ? 'SSE connected' : 'Disconnected'}
       </span>
-      <span className={mode === 'mock' ? 'text-amber' : 'text-green'}>
-        {run?.isMock ? 'Mock run data' : mode === 'mock' ? 'Mock mode' : 'Live data'}
+      <span className={run?.isSynthetic || mode === 'mock' ? 'text-amber' : 'text-green'}>
+        {run?.isSynthetic ? 'Synthetic fixture — not a research result' : mode === 'mock' ? 'Mock mode' : `${run?.mode ?? 'research'} data`}
       </span>
+      <span>{run?.persistence === 'postgres' ? 'durable checkpoints' : 'degraded memory checkpoints'}</span>
+      <span>{run?.securityProfile ?? 'trusted-local-process-isolation'}</span>
       <span>{run?.branches ?? 0} branches</span>
       <span>ckpt: {ckpt ? `${ckpt.slice(0, 8)}…${ckpt.slice(-4)}` : '—'}</span>
       {lastError && <span className="text-red">err: {lastError}</span>}

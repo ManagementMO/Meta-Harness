@@ -118,7 +118,9 @@ export function DecisionLog() {
                 {chapter.iteration >= 1 && (
                   <span className="inline-flex items-center gap-1 mt-1 text-[8px] text-amber uppercase tracking-wide">
                     <span className="w-1 h-1 rounded-full bg-amber" />
-                    memory injected: {Math.min(chapter.iteration + 2, 5)} patterns
+                    {run?.mode === 'autonomous'
+                      ? `global memory eligible: ${Math.min(chapter.iteration + 2, 5)} patterns`
+                      : 'global memory disabled for research validity'}
                   </span>
                 )}
               </div>

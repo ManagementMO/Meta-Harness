@@ -35,7 +35,7 @@ async def fork_run(
     payload: ForkRequest,
     request: Request,
 ) -> dict[str, Any]:
-    get_run_dir(request, run_id)
+    run_dir = get_run_dir(request, run_id)
     graph = get_run_graph(request, run_id)
     parent_thread_id = payload.parent_thread_id or run_id
     try:
@@ -46,6 +46,7 @@ async def fork_run(
             parent_checkpoint_id=payload.parent_checkpoint_id,
             mods=payload.mods,
             name=payload.name,
+            run_dir=run_dir,
         )
     except KeyError as exc:
         raise HTTPException(

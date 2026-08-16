@@ -238,3 +238,6 @@ frontend/dist/
 agents/*.py
 !agents/__init__.py
 !agents/baseline.py
+
+# Project/global harness component registry produced by applied refinements.
+/.meta-harness/

@@ -1,8 +1,9 @@
 # BUILD_ORDER.md — topological execution sequence
 
-*Thirteen numbered steps. Each one ships a verifiable, runnable slice.
-After each step: run the DoD command, commit
-`step N: <goal> — <what works now>`, then pause for review.*
+*Historical thirteen-step hackathon sequence. Current source has moved to the
+artifact/evaluator/evidence architecture in `META_HARNESS_DEEP_RESEARCH_BRIEF.md`.
+Commands remain useful regression references, but name-based candidate paths,
+synthetic score claims, and older authority statements are not current contracts.*
 
 Conventions:
 - All paths are repo-root-relative.

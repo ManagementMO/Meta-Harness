@@ -1,6 +1,6 @@
 ---
 name: meta-harness-coding-agent
-description: Evolve the coding-agent harness. Use this skill when invoked by `meta-harness loop` to propose a new candidate harness based on prior execution traces and scores. Read the filesystem first; form falsifiable hypotheses; produce ONE new agents/<name>.py file and register it in the run's pending_eval.json.
+description: Evolve the coding-agent harness from immutable run evidence. Read traces first, form falsifiable hypotheses, write one run-scoped proposal, and register its source_path and class_name in pending_eval.json.
 ---
 
 # Meta-Harness Coding Agent Evolution
@@ -12,9 +12,11 @@ addresses it.
 
 ## What gets evolved
 
-The harness is a single Python file in `agents/<name>.py` that subclasses
-`CodingAgentHarness` from `app.meta_harness.harness`. You may override
-any of the **11 search-space methods** (Appendix C §C.9):
+The proposal is one Python file under
+`runs/{run_id}/proposals/iter-{N}/<name>.py`. After registration, the runtime
+copies and hashes it into an immutable candidate bundle. It subclasses
+`CodingAgentHarness` from `app.meta_harness.harness` and may override any of
+the **11 search-space hooks**:
 
 - `SYSTEM_PROMPT` — how the agent is instructed.
 - `PLAN_PROMPT_TEMPLATE` — how planning is framed.
@@ -29,9 +31,10 @@ any of the **11 search-space methods** (Appendix C §C.9):
 - (Structural) Override `build_inner_graph()` to reorder phases.
 
 You may **NOT** override the 6 fixed inner-loop tools (`read_file`,
-`apply_patch`, `write_file`, `run_bash`, `grep_search`, `task_complete`)
-or the phase boundaries (`orient`, `plan`, `act`, `verify`, `submit`) —
-those are the contract with the evaluator.
+`apply_patch`, `write_file`, `run_bash`, `grep_search`, `task_complete`).
+The default phases are evaluator-owned; structural changes must use only the
+explicit `build_inner_graph()` hook and remain compatible with the state and
+evaluator contracts.
 
 ## Hard rules (Anti-Overfitting)
 
@@ -57,6 +60,9 @@ those are the contract with the evaluator.
    ```
 3. **No combinatorial sweeps.** Don't propose 3 candidates that vary one
    constant. Propose 1 candidate that introduces a new mechanism.
+4. **Keep the experiment model fixed.** Do not override `MODEL` or the
+   telemetry-owning `call_llm()` boundary. `_call_llm()` remains evolvable,
+   but provider usage must flow through `call_llm()`.
 
 ## Workflow (mandatory order)
 
@@ -68,9 +74,9 @@ Read these files in this order:
    hypothesis, score.
 2. `runs/{run_id}/frontier_val.json` — current Pareto frontier (which
    candidates are non-dominated on accuracy × tokens).
-3. The 2-3 lowest-scoring candidates' `agents/<name>.py` source code AND
-   their `runs/{run_id}/candidates/<name>/traces/` execution traces.
-4. The current best candidate's source + traces.
+3. The 2-3 lowest-scoring candidates' immutable
+   `runs/{run_id}/candidates/<candidate-id>/source/harness.py` source and traces.
+4. The current best candidate manifest, source, raw traces, and task results.
 
 Then form THREE falsifiable hypotheses about why the best candidate
 fails on specific tasks. Briefly note them in your reasoning.
@@ -87,13 +93,14 @@ mechanism does what you think it does before committing it to a candidate.
 
 ### Step 4 — Implement (write the candidate)
 
-1. Copy the current best candidate as `agents/<descriptive-snake-case-name>.py`.
+1. Copy the current best candidate to
+   `runs/{run_id}/proposals/iter-{N}/<descriptive-snake-case-name>.py`.
 2. Apply the targeted modification (override at most 2-3 of the 11
    search-space methods).
 3. Add the self-critique comment block at the top.
 4. Verify the file imports cleanly:
    ```bash
-   uv run python -c "from agents.<name> import *; print('OK')"
+   uv run python runs/{run_id}/proposals/iter-{N}/<name>.py
    ```
 
 ### Step 5 — Register (write pending_eval.json)
@@ -106,7 +113,8 @@ Write to `runs/{run_id}/pending_eval.json`:
   "candidates": [
     {
       "name": "<descriptive-snake-case-name>",
-      "import_path": "agents.<descriptive-snake-case-name>:<ClassName>",
+      "source_path": "runs/{run_id}/proposals/iter-{N}/<name>.py",
+      "class_name": "<ClassName>",
       "parent": "<parent-candidate-name>",
       "hypothesis": "<one-sentence falsifiable claim>",
       "axis": "exploration | exploitation",
@@ -116,8 +124,10 @@ Write to `runs/{run_id}/pending_eval.json`:
 }
 ```
 
-The class name in `import_path` must match the class you defined in
-`agents/<name>.py` (a subclass of `CodingAgentHarness`).
+`class_name` must match the class defined in `source_path`. The proposal path is
+mutable staging only: before validation, the runtime copies and hashes those exact
+bytes into `runs/{run_id}/candidates/{candidate_id}/source/harness.py`. All
+evaluation and later parent selection use that immutable candidate artifact.
 
 ## Interface contract
 
@@ -133,16 +143,16 @@ class YourCandidateName(CodingAgentHarness):
     # ... overrides ...
 ```
 
-The candidate will be loaded by the outer state machine via
-`importlib.import_module("agents.<name>")` and instantiated with
-`YourCandidateName()`. The `__init__` must accept no required args
+The candidate will be loaded from its immutable source hash under a unique
+module identity and instantiated with `YourCandidateName()`. The `__init__`
+must accept no required args
 (it inherits from `CodingAgentHarness.__init__` which reads the
 Anthropic API key from the env).
 
 ## What you may NOT do
 
-- Modify files outside `agents/` and `/tmp/` (and the run-specific
-  `runs/{run_id}/pending_eval.json`).
+- Modify files outside `/tmp/`, the current iteration's run-scoped proposal
+  directory, and `runs/{run_id}/pending_eval.json`.
 - Modify the eval tasks in `eval/`.
 - Modify any baseline file (`agents/baseline.py`).
 - Read `eval/holdout/` — it is held out from the proposer.

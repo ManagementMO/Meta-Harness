@@ -176,6 +176,11 @@ export const demoFixtureState: Partial<DashboardState> = {
     bestScore: 0.85,
     status: "running",
     iteration: 4,
+    isMock: true,
+    isSynthetic: true,
+    mode: "research",
+    persistence: "memory",
+    securityProfile: "trusted-local-process-isolation",
   },
   tree: initialTree,
   iterations: initialIterations,
@@ -194,6 +199,10 @@ export const demoFixtureState: Partial<DashboardState> = {
   selectedNode: "more-specific-descriptions",
 };
 
+function treeNodeKey(node: TreeNode): string {
+  return node.candidateId ?? node.candidate;
+}
+
 function reducer(state: DashboardState, action: DashboardAction): DashboardState {
   switch (action.type) {
     case "SET_MODE":
@@ -203,7 +212,8 @@ function reducer(state: DashboardState, action: DashboardAction): DashboardState
     case "SET_TREE":
       return { ...state, tree: action.payload };
     case "ADD_TREE_NODE": {
-      const existing = state.tree.find(n => n.candidate === action.payload.candidate);
+      const payloadKey = treeNodeKey(action.payload);
+      const existing = state.tree.find(node => treeNodeKey(node) === payloadKey);
       const merged: TreeNode = existing
         ? {
             ...existing,
@@ -216,37 +226,44 @@ function reducer(state: DashboardState, action: DashboardAction): DashboardState
             delta: action.payload.delta ?? existing.delta,
           }
         : action.payload;
-      const without = state.tree.filter(n => n.candidate !== action.payload.candidate);
+      const without = state.tree.filter(node => treeNodeKey(node) !== payloadKey);
       return { ...state, tree: [...without, merged] };
     }
     case "SET_CHECKPOINT_ID":
       return {
         ...state,
         tree: state.tree.map(node => (
-          node.candidate === action.payload.candidate
+          treeNodeKey(node) === action.payload.candidate || node.candidate === action.payload.candidate
             ? { ...node, checkpointId: action.payload.checkpointId }
             : node
         )),
       };
-    case "APPLY_FRONTIER_UPDATE":
+    case "APPLY_FRONTIER_UPDATE": {
+      const bestKey = action.payload.bestCandidateId ?? action.payload.bestCandidate;
+      const frontierKeys = new Set(
+        action.payload.frontierIds?.length
+          ? action.payload.frontierIds
+          : action.payload.frontier,
+      );
       return {
         ...state,
-        tree: state.tree.map(node => ({
-          ...node,
-          status:
-            action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
-              ? "best"
-              : action.payload.bestCandidate && node.status === "best"
-                ? (action.payload.frontier.includes(node.candidate) ? "accepted" : "rejected")
-                : action.payload.frontier.includes(node.candidate)
-                  ? "accepted"
-                  : node.status,
-          delta:
-            action.payload.bestCandidate && node.candidate === action.payload.bestCandidate
-              ? action.payload.delta
-              : node.delta,
-        })),
+        tree: state.tree.map(node => {
+          const key = treeNodeKey(node);
+          return {
+            ...node,
+            status:
+              bestKey && key === bestKey
+                ? "best"
+                : bestKey && node.status === "best"
+                  ? (frontierKeys.has(key) ? "accepted" : "rejected")
+                  : frontierKeys.has(key)
+                    ? "accepted"
+                    : node.status,
+            delta: bestKey && key === bestKey ? action.payload.delta : node.delta,
+          };
+        }),
       };
+    }
     case "SET_ITERATIONS":
       return { ...state, iterations: action.payload };
     case "ADD_LOG_ENTRY": {
@@ -274,7 +291,11 @@ function reducer(state: DashboardState, action: DashboardAction): DashboardState
       return { ...state, sseConnected: action.payload };
     case "ADD_ITERATION": {
       const without = state.iterations.filter(
-        i => !(i.candidateName === action.payload.candidateName && i.iteration === action.payload.iteration),
+        iteration => !(
+          iteration.candidateName === action.payload.candidateName &&
+          iteration.iteration === action.payload.iteration &&
+          iteration.threadId === action.payload.threadId
+        ),
       );
       return { ...state, iterations: [...without, action.payload] };
     }

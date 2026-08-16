@@ -68,13 +68,7 @@ async def test_outer_loop_with_postgres_persistence(tmp_path: Path):
     assert (run_dir / "frontier_val.json").exists()
     assert (run_dir / "evolution_summary.jsonl").exists()
     rows = (run_dir / "evolution_summary.jsonl").read_text().strip().split("\n")
-    assert len(rows) == 2
-
-    # Cleanup mock harness stubs from repo-root agents/.
-    for c in final["candidates"]:
-        stub = REPO_ROOT / "agents" / f"{c['name']}.py"
-        if stub.exists():
-            stub.unlink()
+    assert len(rows) == 3
 
 
 async def test_checkpoints_persist_in_postgres(tmp_path: Path):
@@ -106,11 +100,6 @@ async def test_checkpoints_persist_in_postgres(tmp_path: Path):
         assert len(history) >= 4, (
             f"expected ≥4 checkpoints for one iteration; got {len(history)}"
         )
-
-    for c_dir in (run_dir / "candidates").iterdir():
-        stub = REPO_ROOT / "agents" / f"{c_dir.name}.py"
-        if stub.exists():
-            stub.unlink()
 
 
 async def test_resume_completes_remaining_iterations(tmp_path: Path):
@@ -157,8 +146,3 @@ async def test_resume_completes_remaining_iterations(tmp_path: Path):
     # No duplicate iterations across rows.
     iters = [json.loads(r)["iteration"] for r in rows if r.strip()]
     assert len(iters) == len(set(iters)), f"duplicate iterations in summary: {iters}"
-
-    for c_dir in (run_dir / "candidates").iterdir():
-        stub = REPO_ROOT / "agents" / f"{c_dir.name}.py"
-        if stub.exists():
-            stub.unlink()

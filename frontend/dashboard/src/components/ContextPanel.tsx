@@ -5,6 +5,7 @@ import { useDashboard, useDashboardDispatch } from '@/lib/state';
 import { ScoreChart } from './ScoreChart';
 import { DiffViewer } from './DiffViewer';
 import { TestOutput } from './TestOutput';
+import { EvidencePanel } from './EvidencePanel';
 import { MemoryPanel } from './MemoryPanel';
 import { getDiff, getTestOutput } from '@/lib/api';
 
@@ -15,9 +16,11 @@ export function ContextPanel() {
   const [diffResult, setDiffResult] = useState<{ candidate: string; value: string | null } | null>(null);
   const [testResult, setTestResult] = useState<{ candidate: string; value: string | null } | null>(null);
 
-  const tabs = ['chart', 'diff', 'test', 'memory'] as const;
-  const selected = selectedNode ?? tree.find(n => n.status === 'best')?.candidate ?? tree[0]?.candidate ?? null;
-  const selectedTreeNode = tree.find(n => n.candidate === selected) ?? null;
+  const tabs = ['chart', 'diff', 'test', 'evidence', 'memory'] as const;
+  const bestNode = tree.find(node => node.status === 'best');
+  const selected = selectedNode ?? bestNode?.candidateId ?? bestNode?.candidate ?? tree[0]?.candidateId ?? tree[0]?.candidate ?? null;
+  const selectedTreeNode = tree.find(node => (node.candidateId ?? node.candidate) === selected || node.candidate === selected) ?? null;
+  const selectedLabel = selectedTreeNode?.candidate ?? selected;
   const diff = diffResult?.candidate === selected ? diffResult.value : null;
   const testOut = testResult?.candidate === selected ? testResult.value : null;
   const perTask = Object.entries(selectedTreeNode?.scores.per_task ?? {});
@@ -59,7 +62,7 @@ export function ContextPanel() {
 
   const mockTestOutput = hasMockTaskData
     ? [
-      `mock suite for ${selected ?? 'candidate'}`,
+      `mock suite for ${selectedLabel ?? 'candidate'}`,
       ...perTask.map(([taskName, stats]) => {
         const passCount = stats.trials.filter(Boolean).length;
         const total = stats.trials.length;
@@ -94,7 +97,7 @@ export function ContextPanel() {
         {contextTab === 'diff' && diff && (
           <div>
             <div className="flex items-center gap-2 mb-4 text-xs">
-              <span className="text-text-hi font-semibold">agents/{selected ?? 'candidate'}.py</span>
+              <span className="text-text-hi font-semibold">{selectedLabel ?? 'candidate'} · immutable source</span>
               <span className="text-green">+18</span>
               <span className="text-red">-3</span>
             </div>
@@ -109,7 +112,7 @@ export function ContextPanel() {
         )}
         {contextTab === 'diff' && !diff && !mockDiffPreview && (
           <div className="text-text-mid text-xs">
-            {selected ? `No diff available for ${selected}` : 'No candidate selected yet.'}
+            {selectedLabel ? `No diff available for ${selectedLabel}` : 'No candidate selected yet.'}
           </div>
         )}
 
@@ -117,10 +120,11 @@ export function ContextPanel() {
         {contextTab === 'test' && !testOut && mockTestOutput && <TestOutput output={mockTestOutput} />}
         {contextTab === 'test' && !testOut && !mockTestOutput && (
           <div className="text-text-mid text-xs">
-            {selected ? `No test output available for ${selected}` : 'No candidate selected yet.'}
+            {selectedLabel ? `No test output available for ${selectedLabel}` : 'No candidate selected yet.'}
           </div>
         )}
 
+        {contextTab === 'evidence' && <EvidencePanel />}
         {contextTab === 'memory' && <MemoryPanel />}
       </div>
     </div>

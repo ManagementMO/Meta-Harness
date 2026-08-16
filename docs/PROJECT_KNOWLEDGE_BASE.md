@@ -1,5 +1,13 @@
 # Meta-Harness — Complete Project Knowledge Base
 
+> **Historical hackathon snapshot.** This document preserves the original demo
+> architecture and terminology. Mutable `agents/<name>.py`, name-keyed candidate
+> directories, placeholder frontend behavior, and completion claims below are not
+> current contracts. Prefer current source/tests and
+> `META_HARNESS_DEEP_RESEARCH_BRIEF.md`; evaluated candidates now use run-scoped
+> proposals, immutable candidate IDs/manifests, truthful metric status, durable
+> evidence, and explicit search/holdout finalization.
+
 > *A single document, deep enough that a teammate who has never seen this repo
 > can read it cover-to-cover and walk into the demo room speaking the system's
 > language. Every claim has either a code excerpt or a file:line reference; no

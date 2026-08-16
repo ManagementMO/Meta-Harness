@@ -40,24 +40,35 @@ meta-harness/                                              # Repo root (uv works
 │   │   ├── streaming.py                                   # In-process SSE channel registry
 │   │   ├── meta_harness/                                  # ⚠ INTERNAL namespace (app.meta_harness ≠ sdk's meta_harness)
 │   │   │   ├── __init__.py
-│   │   │   ├── outer.py                                   # Outer StateGraph: propose → validate → benchmark → update_frontier
-│   │   │   ├── inner.py                                   # Inner StateGraph: orient → plan → act → verify → submit
-│   │   │   ├── state.py                                   # MetaHarnessState + CodingAgentState TypedDicts
-│   │   │   ├── proposer.py                                # ⚠ claude_wrapper.py-shaped: subprocess + stream-json parsing (body of `propose` node)
-│   │   │   ├── harness.py                                 # CodingAgentHarness base + the 11 override points
-│   │   │   ├── tools.py                                   # 6 fixed inner-loop tools (read_file/apply_patch/write_file/run_bash/grep_search/task_complete)
-│   │   │   ├── sandbox.py                                 # /tmp/meta-harness-task-{uuid}/ process isolation, rlimits
-│   │   │   ├── frontier.py                                # Pareto frontier on (accuracy × tokens)
-│   │   │   ├── memory.py                                  # PostgresStore wrapper for cross-run patterns
-│   │   │   ├── persistence.py                             # AsyncPostgresSaver + psycopg AsyncConnectionPool (max_size=20)
-│   │   │   ├── branches.py                                # branch_registry + worktree_add (Appendix A)
-│   │   │   └── runs.py                                    # Run filesystem lifecycle (runs/{run-id}/{agents,traces,proposer-sessions,...})
+│   │   │   ├── contracts.py                               # Versioned candidate/evaluation/evidence/refinement models
+│   │   │   ├── artifacts.py                               # Atomic and content-addressed artifact storage
+│   │   │   ├── candidates.py                              # Immutable candidate materialization, policy checks, loading
+│   │   │   ├── evaluator.py                               # Shared search/holdout evaluator and telemetry aggregation
+│   │   │   ├── runtime.py                                 # Task runtime adapter registry
+│   │   │   ├── execution.py                               # Fixed-graph and future recursive backend boundary
+│   │   │   ├── ledger.py                                  # Append-only evidence and lifecycle transitions
+│   │   │   ├── refinements.py                             # Versioned apply/reject/rollback records
+│   │   │   ├── reports.py                                 # Finalization and paired regression reports
+│   │   │   ├── experiments.py                             # Deterministic bundles and repeated-run confidence summaries
+│   │   │   ├── outer.py                                   # Baseline → population search → archive/frontier selection
+│   │   │   ├── inner.py                                   # Orient → plan → act → verify → submit
+│   │   │   ├── state.py                                   # LangGraph state compatibility schemas
+│   │   │   ├── proposer.py                                # Run-scoped mock/Claude proposal generation
+│   │   │   ├── harness.py                                 # CodingAgentHarness + telemetry + 11 override hooks
+│   │   │   ├── tools.py                                   # 6 fixed inner-loop tools
+│   │   │   ├── sandbox.py                                 # Trusted-local process/workspace isolation
+│   │   │   ├── frontier.py                                # Pareto frontier with unknown-metric handling
+│   │   │   ├── memory.py                                  # Scoped evidence-ranked Postgres patterns
+│   │   │   ├── persistence.py                             # AsyncPostgresSaver connection pool
+│   │   │   ├── branches.py                                # Concurrent branches + durable projections
+│   │   │   └── runs.py                                    # Run filesystem lifecycle
 │   │   └── api/                                           # HTTP transport layer
 │   │       ├── __init__.py
 │   │       ├── runs.py                                    # POST /runs, GET /runs, GET /runs/{id}
 │   │       ├── checkpoints.py                             # GET /runs/{id}/checkpoints
 │   │       ├── forks.py                                   # POST /runs/{id}/fork ; POST .../branches/{thread_id}/cancel
-│   │       ├── memory.py                                  # GET /memory/{namespace}
+│   │       ├── memory.py                                  # Scoped memory list/search
+│   │       ├── refinements.py                             # Refinement propose/apply/reject/rollback
 │   │       └── events.py                                  # GET /runs/{id}/stream (SSE)
 │   └── tests/                                             # pytest suite: test_outer/inner/proposer/tools/sandbox/frontier/memory/branches
 │

@@ -6,8 +6,15 @@ specify a shape; **derivations** are flagged inline. The scope is contracts,
 not implementation.*
 
 Phase 1.2 (FE/BE protocol) is resolved: **SSE for events + REST for
-commands.** Phase 1.3 (skill loading mechanism) is still open and is
-called out where it intersects this document.
+commands.** Phase 1.3 (skill loading mechanism) is resolved.
+
+> **2026-08-16 contract update:** current source and the Pydantic models in
+> `backend/app/meta_harness/contracts.py` supersede older name-based examples
+> below. Evaluated candidates use `candidate_id`, `candidate.json`, immutable
+> source hashes, explicit measurement status, separate search/holdout policies,
+> and append-only evidence events. Name-based fields remain compatibility/UI
+> projections only. Historical examples are retained for lineage and must not
+> be used to reintroduce mutable `agents/<name>.py` evaluation.
 
 ---
 
@@ -52,31 +59,27 @@ class CodingAgentState(TypedDict):
     score: float | None                         # 0.0 or 1.0 (per-trial pytest pass)
 ```
 
-### 1.3 `Candidate` — element of `MetaHarnessState.candidates`
+### 1.3 `CandidateRecord` — serialized at the LangGraph boundary
 
-*Locked. Synthesized from the union of fields used in pending_eval.json
-(proposer-written), the validate/benchmark/update_frontier nodes
-(graph-enriched), and the trace structure (Appendix C §C.10).*
+The authoritative model is Pydantic-backed in `contracts.py`; LangGraph state
+stores its JSON-compatible representation.
 
 ```python
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Literal
-
-@dataclass
-class Candidate:
-    name: str                       # e.g. "few_shot_tool_results"
-    import_path: str                # e.g. "agents.few_shot_tool_results:CodingAgentHarness"
-    parent: str | None              # parent candidate name; None for baseline
-    hypothesis: str                 # falsifiable claim from the proposer
+class CandidateRecord(BaseModel):
+    candidate_id: str
+    name: str
+    artifact_path: str              # candidates/{candidate_id}/candidate.json
+    parent_ids: list[str]
+    parent: str | None              # display-only compatibility projection
+    hypothesis: str
     axis: Literal["exploration", "exploitation"]
     expected_score_delta: float | None
-    iteration: int                  # outer-loop iteration that produced it
-    traces_dir: Path                # runs/{run_id}/candidates/{name}/traces/ — created at propose-time, populated at benchmark-time, never None
-    status: Literal["pending", "smoke_failed", "evaluated", "rejected", "accepted"]
-    scores: dict | None             # eval-result.json content; None until benchmark
-    delta: float | None             # score - parent.score; None until update_frontier
+    iteration: int
+    status: CandidateStatus
+    scores: dict | None             # compact aggregate; raw results remain artifacts
+    delta: float | None
     cost_usd: float | None
+    validation_error: str | None
 ```
 
 ---
@@ -89,17 +92,19 @@ filesystem-first convention (Appendix B §B.2).
 
 ### 2.1 `pending_eval.json` — proposer→outer-graph handoff
 
-*Verbatim from Appendix B §B.5.1.*
+Validated by `PendingEvaluation` and `ProposalCandidate` in `contracts.py`.
 
 ```json
 {
+  "schema_version": 1,
   "iteration": 3,
   "candidates": [
     {
       "name": "few-shot-tool-results",
-      "import_path": "agents.few_shot_tool_results:CodingAgentHarness",
+      "source_path": "runs/run-001/proposals/iter-3/few-shot-tool-results.py",
+      "class_name": "FewShotToolResultsHarness",
       "parent": "more-specific-descriptions",
-      "hypothesis": "Inlining 1 example tool result reduces patch-context misses",
+      "hypothesis": "Inlining one tool-result example reduces patch-context misses",
       "axis": "exploitation",
       "expected_score_delta": 0.04
     }
@@ -107,8 +112,9 @@ filesystem-first convention (Appendix B §B.2).
 }
 ```
 
-The proposer writes ONE candidate per iteration (TB2 convention; we are
-single-domain coding-agent). Class name is always `CodingAgentHarness`.
+The committed proposer skill emits one candidate per iteration. The outer
+contract supports populations for controlled ablations. `source_path` is staging
+only; materialization copies and hashes it into the immutable candidate bundle.
 
 ### 2.2 `frontier_val.json` — current Pareto frontier
 
@@ -410,9 +416,10 @@ can fix the patch without re-reading the file (per Appendix C §C.6.2's
   }
 }
 ```
-Sandbox: `/tmp/meta-harness-task-{uuid}/`, no network, rlimit 512MB RAM /
-60s CPU. Allowed binaries: `python3, pip, pytest, git, bash, ls, cat, grep,
-sed, head, tail, find, diff, make`. **No** `curl, wget, ssh`.
+Execution profile: a copied `/tmp/meta-harness-task-{uuid}/` workspace,
+wall timeout, and supported Unix process limits. There is currently no network
+restriction or binary allowlist. Commands run with the user’s host permissions;
+this is trusted-local process/workspace isolation, not a security sandbox.
 
 ### 3.4 `grep_search`
 
@@ -597,9 +604,14 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 | `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25", "proposer": "claude", "mock_bench": false, "trials": 5, "workers": 3}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "current_iteration": 0}` | **201** |
 | `GET`  | `/runs` | — | `{"runs": [{"run_id", "thread_id", "status", "started_at", "current_iteration", "best_score"}]}` | 200 |
 | `GET`  | `/runs/{run_id}` | — | full `RunInfo` (run dir manifest + frontier_val + last few summary rows) | 200 |
-| `GET`  | `/runs/{run_id}/candidates/{candidate_name}/diff` | — | `{"candidate", "parent", "from_path", "to_path", "diff"}` where `diff` is unified diff text between parent and candidate source | 200 |
-| `GET`  | `/runs/{run_id}/candidates/{candidate_name}/test-output` | — | `{"candidate", "output"}` summarizing eval-result and available verify trace output | 200 |
-| `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to all branches via `branch_registry`) | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_identifier}/diff` | — | `{"candidate", "parent", "from_path", "to_path", "diff"}` where `diff` is unified diff text between parent and candidate source | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_identifier}/test-output` | — | `{"candidate", "output"}` summarizing eval-result and available verify trace output | 200 |
+| `GET`  | `/runs/{run_id}/candidates/{candidate_identifier}/manifest` | — | Immutable `CandidateArtifact` with source hash, parent IDs, model/policy identity, and provenance | 200 |
+| `GET`  | `/runs/{run_id}/report` | — | Compact reproducibility report with manifest, archive/frontier IDs, metrics, and failure summary | 200 |
+| `GET`  | `/runs/{run_id}/events` | optional event/entity/attempt/candidate/task/tool/failure/turn/time filters | Append-only evidence events from the run and branch ledgers | 200 |
+| `GET`  | `/runs/{run_id}/artifacts/{sha256}` | — | Verified content-addressed evidence bytes | 200/400/404 |
+| `POST` | `/runs/{run_id}/finalize` | optional candidate IDs/trials/workers | Search-isolated holdout report; rejects synthetic search | 200/409/422 |
+| `DELETE` | `/runs/{run_id}` | — | `{"status": "cancelled"}` (cascades to active and durable branch records) | 200 |
 
 `proposer`, `mock_bench`, `trials`, and `workers` are backend run-control
 fields used by the CLI-equivalent API path and smoke tests. Omitted
@@ -643,7 +655,18 @@ from an existing branch thread without changing the route shape.
 the backend returns empty result sets with `implemented=false`; callers
 must treat that as a valid degraded mode, not an error.
 
-### 6.6 Events / SSE (`api/events.py`)
+### 6.6 Refinements (`api/refinements.py`)
+
+| Method | Path | Role |
+|---|---|---|
+| `GET` | `/runs/{run_id}/refinements` | List versioned refinement records |
+| `POST` | `/runs/{run_id}/refinements` | Propose an evidence-backed prompt/memory/skill/subagent/control-flow/tool-interface change |
+| `GET` | `/runs/{run_id}/refinements/{refinement_id}` | Read one record and immutable hashes |
+| `POST` | `/runs/{run_id}/refinements/{refinement_id}/apply` | Apply after hash/precondition checks; project/global scope is rejected in research mode |
+| `POST` | `/runs/{run_id}/refinements/{refinement_id}/reject` | Preserve a rejected proposal and reason |
+| `POST` | `/runs/{run_id}/refinements/{refinement_id}/rollback` | Restore the before artifact or remove a newly created run-local target |
+
+### 6.7 Events / SSE (`api/events.py`)
 
 | Method | Path | Response |
 |---|---|---|
@@ -683,11 +706,11 @@ Blank line terminates each event. Reconnect via `Last-Event-ID` header
 | Event | Fired by | Data shape |
 |---|---|---|
 | `state-update` | every LangGraph node transition | `{thread_id, node, iteration, ts, summary}` |
-| `checkpoint-written` | AsyncPostgresSaver post-write | `{thread_id, checkpoint_id, parent_checkpoint_id, ts, node}` |
-| `candidate-created` | `propose` node after parsing pending_eval.json | `{thread_id, candidate, parent_candidate_name, import_path, parent, iteration, status, scores, delta, hypothesis, axis}` |
+| `checkpoint-written` | API checkpoint-history projection (emitted after run completion; live fork actions query the checkpoint endpoint directly) | `{thread_id, checkpoint_id, parent_checkpoint_id, ts, node, candidate?, candidate_id?}` |
+| `candidate-created` | proposal materialization | `{thread_id, candidate, candidate_id, parent_candidate_name, parent_ids, iteration, status, hypothesis, axis, synthetic}` |
 | `validate-result` | `validate` node | `{thread_id, candidate, valid, error?}` |
-| `eval-result` | `benchmark` node | `{thread_id, candidate, parent_candidate_name, iteration, status, accuracy, scores, per_task, tokens, cost_usd, hypothesis, axis}` |
-| `frontier-updated` | `update_frontier` node | `{thread_id, candidate, parent_candidate_name, iteration, frontier, best_candidate, best_score, status, accepted, delta, scores, hypothesis, axis}` |
+| `eval-result` | shared evaluator | `{thread_id, candidate, candidate_id, parent_ids, iteration, status, accuracy, scores, per_task, tokens, cost_usd, hypothesis, axis, synthetic}` |
+| `frontier-updated` | `update_frontier` node | `{thread_id, candidate, candidate_id, iteration, frontier, frontier_ids, best_candidate, best_candidate_id, best_score, delta, scores, synthetic}` |
 | `iteration-complete` | end of `update_frontier` | `{thread_id, iteration, status: "improved"\|"no_improvement"}` |
 | `fork-created` | `worktree_add` | `{thread_id, parent_thread_id, parent_checkpoint_id, mods_summary}` |
 | `branch-cancelled` | cancel endpoint | `{thread_id, reason}` |

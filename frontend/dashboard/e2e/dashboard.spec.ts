@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Dashboard (mock mode, no backend)', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('http://localhost:8000/health', route => route.abort());
+    await page.route('**/api/health', route => route.abort());
     await page.goto('/runs/demo-2026-04-25');
     await page.getByText('SSE connected').waitFor({ timeout: 10_000 });
   });
@@ -42,6 +42,12 @@ test.describe('Dashboard (mock mode, no backend)', () => {
     await expect(
       page.getByText(/Mock task patch preview|No diff available for/),
     ).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('evidence tab labels fixture data as synthetic', async ({ page }) => {
+    await page.getByRole('button', { name: /evidence/i }).click();
+    await expect(page.getByText(/Synthetic fixture data/)).toBeVisible();
+    await expect(page.getByText('not permitted')).toBeVisible();
   });
 
   test('right-click tree node opens fork modal', async ({ page }) => {

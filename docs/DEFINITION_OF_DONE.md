@@ -1,8 +1,10 @@
 # DEFINITION_OF_DONE.md — the demo arc as the formal acceptance test
 
-*A run that satisfies every binary check below is what "done" means.
-This is the authoritative acceptance contract; if the implementation
-disagrees, the implementation is wrong.*
+*Historical hackathon demo acceptance contract. It is not the authority for
+research validity or current source behavior. Synthetic score-arc checks below
+validate presentation plumbing only and must never be reported as measured
+self-improvement. Current source/tests and `META_HARNESS_DEEP_RESEARCH_BRIEF.md`
+take precedence.*
 
 ---
 

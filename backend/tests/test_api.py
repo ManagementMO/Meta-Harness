@@ -180,13 +180,96 @@ def test_run_checkpoint_fork_branch_memory_api_flow():
 
             diff = client.get(f"/runs/{run_name}/candidates/_mock_iter_1/diff")
             assert diff.status_code == 200
-            assert "agents/_mock_iter_1.py" in diff.json()["diff"]
+            assert "candidates/cand_" in diff.json()["diff"]
+            assert diff.json()["candidate_id"].startswith("cand_")
 
             test_output = client.get(
                 f"/runs/{run_name}/candidates/_mock_iter_1/test-output"
             )
             assert test_output.status_code == 200
             assert "accuracy:" in test_output.json()["output"]
+
+            candidate_manifest = client.get(
+                f"/runs/{run_name}/candidates/_mock_iter_1/manifest"
+            )
+            assert candidate_manifest.status_code == 200
+            assert candidate_manifest.json()["candidate_id"].startswith("cand_")
+            assert candidate_manifest.json()["source"]["sha256"]
+
+            report = client.get(f"/runs/{run_name}/report")
+            assert report.status_code == 200
+            assert report.json()["synthetic"] is True
+            assert report.json()["frontier_ids"]
+
+            evidence = client.get(f"/runs/{run_name}/events")
+            assert evidence.status_code == 200
+            assert any(
+                event["event_type"] == "CandidateMaterialized"
+                for event in evidence.json()["events"]
+            )
+            candidate_id = candidate_manifest.json()["candidate_id"]
+            filtered_evidence = client.get(
+                f"/runs/{run_name}/events",
+                params={"candidate_id": candidate_id},
+            )
+            assert filtered_evidence.status_code == 200
+            assert filtered_evidence.json()["events"]
+            assert all(
+                candidate_id
+                in {
+                    event["entity_id"],
+                    event["payload"].get("candidate_id"),
+                }
+                for event in filtered_evidence.json()["events"]
+            )
+            artifact_refs = [
+                ref
+                for event in filtered_evidence.json()["events"]
+                for ref in event["artifact_refs"]
+            ]
+            assert artifact_refs
+            artifact = client.get(
+                f"/runs/{run_name}/artifacts/{artifact_refs[0]['sha256']}"
+            )
+            assert artifact.status_code == 200
+            assert (
+                artifact.headers["x-artifact-sha256"]
+                == artifact_refs[0]["sha256"]
+            )
+            invalid_artifact = client.get(
+                f"/runs/{run_name}/artifacts/not-a-digest"
+            )
+            assert invalid_artifact.status_code == 400
+
+            finalization = client.post(f"/runs/{run_name}/finalize", json={})
+            assert finalization.status_code == 422
+            assert "synthetic" in finalization.json()["detail"]
+
+            refinement = client.post(
+                f"/runs/{run_name}/refinements",
+                json={
+                    "kind": "prompt",
+                    "scope": "run",
+                    "target": "prompts/verify.txt",
+                    "content": "new verification prompt",
+                    "proposed_version": "prompt.verify.v1",
+                    "rationale": "trace evidence",
+                    "evidence": [
+                        {"run_id": run_name, "artifact": "trace/verify.json"}
+                    ],
+                    "expected_outcome": "fewer retries",
+                },
+            )
+            assert refinement.status_code == 201
+            refinement_id = refinement.json()["refinement_id"]
+            applied = client.post(
+                f"/runs/{run_name}/refinements/{refinement_id}/apply"
+            )
+            assert applied.status_code == 200
+            rolled_back = client.post(
+                f"/runs/{run_name}/refinements/{refinement_id}/rollback"
+            )
+            assert rolled_back.status_code == 200
 
             listed = client.get("/runs")
             assert listed.status_code == 200
@@ -232,6 +315,17 @@ def test_run_checkpoint_fork_branch_memory_api_flow():
             cancel = client.post(f"/runs/{run_name}/branches/{fork_thread_id}/cancel")
             assert cancel.status_code == 200
             assert cancel.json()["status"] in {"cancelled", "completed"}
+
+            branch_checkpoints = client.get(
+                f"/runs/{run_name}/checkpoints",
+                params={"thread_id": fork_thread_id},
+            )
+            assert branch_checkpoints.status_code == 200
+            assert branch_checkpoints.json()["checkpoints"]
+            assert all(
+                row["thread_id"] == fork_thread_id
+                for row in branch_checkpoints.json()["checkpoints"]
+            )
 
             memory = client.get("/memory/coding-agent")
             assert memory.status_code == 200

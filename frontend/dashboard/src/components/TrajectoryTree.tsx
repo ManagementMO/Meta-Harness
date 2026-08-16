@@ -22,18 +22,22 @@ const GAP_X = 16;
 
 type LayoutNode = TreeNode & { x: number; y: number };
 
+function nodeKey(node: TreeNode): string {
+  return node.candidateId ?? node.candidate;
+}
+
 function layoutTree(nodes: TreeNode[]): LayoutNode[] {
   if (nodes.length === 0) return [];
 
-  const byName = new Map(nodes.map(n => [n.candidate, n]));
-  const root = nodes.find(n => !n.parent_candidate_name);
+  const byKey = new Map(nodes.map(node => [nodeKey(node), node]));
+  const root = nodes.find(node => !node.parent_candidate_name && !node.parentIds?.length);
   if (!root) return [];
 
   const laid: LayoutNode[] = [];
   const colWidth = NODE_W + GAP_X;
 
-  function place(name: string, depth: number, column: number) {
-    const node = byName.get(name);
+  function place(key: string, depth: number, column: number) {
+    const node = byKey.get(key);
     if (!node) return;
 
     laid.push({
@@ -42,9 +46,12 @@ function layoutTree(nodes: TreeNode[]): LayoutNode[] {
       y: depth * (NODE_H + GAP_Y),
     });
 
-    const children = nodes.filter(n => n.parent_candidate_name === name);
+    const children = nodes.filter(child =>
+      child.parentIds?.includes(key) ||
+      (!child.parentIds?.length && child.parent_candidate_name === node.candidate)
+    );
     if (children.length === 1) {
-      place(children[0].candidate, depth + 1, column);
+      place(nodeKey(children[0]), depth + 1, column);
     } else if (children.length > 1) {
       const mainChildren = children.filter(c => !c.isForkBranch && c.status !== 'rejected');
       const forkChildren = children.filter(c => c.isForkBranch);
@@ -52,12 +59,12 @@ function layoutTree(nodes: TreeNode[]): LayoutNode[] {
       const ordered = [...mainChildren, ...forkChildren, ...rejectedChildren];
 
       ordered.forEach((child, i) => {
-        place(child.candidate, depth + 1, column + i);
+        place(nodeKey(child), depth + 1, column + i);
       });
     }
   }
 
-  place(root.candidate, 0, 0);
+  place(nodeKey(root), 0, 0);
   return laid;
 }
 
@@ -80,8 +87,8 @@ export function TrajectoryTree() {
         threadId.includes(rawBranchId)
       );
     });
-    if (!branchNode || selectedNode === branchNode.candidate) return;
-    dispatch({ type: 'SELECT_NODE', payload: branchNode.candidate });
+    if (!branchNode || selectedNode === nodeKey(branchNode)) return;
+    dispatch({ type: 'SELECT_NODE', payload: nodeKey(branchNode) });
   }, [tree, forkEvents, selectedNode, dispatch]);
 
   useEffect(() => {
@@ -93,7 +100,7 @@ export function TrajectoryTree() {
     const laid = layoutTree(tree);
     if (laid.length === 0) return;
 
-    const byName = new Map(laid.map(n => [n.candidate, n]));
+    const byKey = new Map(laid.map(node => [nodeKey(node), node]));
 
     const maxX = Math.max(...laid.map(n => n.x)) + NODE_W + 30;
 
@@ -135,8 +142,9 @@ export function TrajectoryTree() {
 
     // Draw edges
     for (const node of laid) {
-      if (!node.parent_candidate_name) continue;
-      const parent = byName.get(node.parent_candidate_name);
+      const parent = node.parentIds?.[0]
+        ? byKey.get(node.parentIds[0])
+        : laid.find(value => value.candidate === node.parent_candidate_name);
       if (!parent) continue;
 
       const color = node.isForkBranch ? '#8878a8' : node.status === 'rejected' ? '#b06068' : '#6a9e78';
@@ -172,7 +180,7 @@ export function TrajectoryTree() {
     // Draw nodes
     for (const node of laid) {
       const style = STATUS_STYLES[node.status] || STATUS_STYLES.seed;
-      const isSelected = selectedNode === node.candidate;
+      const isSelected = selectedNode === nodeKey(node);
       const opacity = node.status === 'rejected' ? 0.35 : 1;
 
       const nodeG = g.append('g')
@@ -180,7 +188,7 @@ export function TrajectoryTree() {
         .attr('opacity', opacity)
         .attr('cursor', 'pointer')
         .attr('data-testid', 'trajectory-node')
-        .on('click', () => dispatch({ type: 'SELECT_NODE', payload: node.candidate }))
+        .on('click', () => dispatch({ type: 'SELECT_NODE', payload: nodeKey(node) }))
         .on('contextmenu', async (event: MouseEvent) => {
           event.preventDefault();
           let checkpointId = node.checkpointId ?? undefined;
@@ -190,6 +198,7 @@ export function TrajectoryTree() {
           if (!checkpointId && mode === 'live') {
             const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
               candidate: node.candidate,
+              candidateId: node.candidateId,
               iteration: node.iteration,
               threadId: node.threadId,
             }).catch(() => null);
@@ -197,7 +206,7 @@ export function TrajectoryTree() {
             if (checkpointId) {
               dispatch({
                 type: 'SET_CHECKPOINT_ID',
-                payload: { candidate: node.candidate, checkpointId },
+                payload: { candidate: nodeKey(node), checkpointId },
               });
             }
           }
@@ -311,6 +320,7 @@ export function TrajectoryTree() {
           if (!checkpointId && mode === 'live') {
             const resolvedCheckpointId = await resolveCheckpointForNode(params.run_id, {
               candidate: node.candidate,
+              candidateId: node.candidateId,
               iteration: node.iteration,
               threadId: node.threadId,
             }).catch(() => null);
@@ -318,7 +328,7 @@ export function TrajectoryTree() {
             if (checkpointId) {
               dispatch({
                 type: 'SET_CHECKPOINT_ID',
-                payload: { candidate: node.candidate, checkpointId },
+                payload: { candidate: nodeKey(node), checkpointId },
               });
             }
           }

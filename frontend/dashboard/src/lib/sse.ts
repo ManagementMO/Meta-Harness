@@ -68,6 +68,9 @@ import type { TreeNode, LogEntry, ForkEvent, RunSummary, IterationChapter } from
 
 type RunEventData = {
   candidate?: string;
+  candidate_id?: string;
+  parent_ids?: string[];
+  synthetic?: boolean;
   checkpoint_id?: string | number;
   node?: string | number;
   valid?: boolean;
@@ -84,7 +87,9 @@ type RunEventData = {
   accuracy?: number;
   per_task?: TreeNode["scores"]["per_task"];
   frontier?: string[];
+  frontier_ids?: string[];
   best_candidate?: string | null;
+  best_candidate_id?: string | null;
   delta?: number | null;
   parent_thread_id?: string;
   parent_checkpoint_id?: string;
@@ -113,11 +118,13 @@ function candidateNodeFromEvent(data: RunEventData): TreeNode | null {
   const threadId = valueLabel(data.thread_id) ?? undefined;
   return {
     candidate: data.candidate,
+    candidateId: data.candidate_id,
     parent_candidate_name: data.parent ?? null,
+    parentIds: data.parent_ids,
     iteration: iterationValue,
     checkpointId: valueLabel(data.checkpoint_id) ?? undefined,
     status: "seed",
-    scores: { accuracy: 0 },
+    scores: { accuracy: 0, synthetic: data.synthetic },
     delta: null,
     isForkBranch: threadId?.includes(".fork.") ?? false,
     threadId,
@@ -129,11 +136,13 @@ function evalNodeFromEvent(data: RunEventData): TreeNode | null {
   const accuracy = typeof data.accuracy === "number" ? data.accuracy : 0;
   return {
     candidate: data.candidate,
+    candidateId: data.candidate_id,
     parent_candidate_name: data.parent ?? null,
+    parentIds: data.parent_ids,
     iteration: typeof data.iteration === "number" ? data.iteration : 0,
     checkpointId: valueLabel(data.checkpoint_id) ?? undefined,
     status: "accepted",
-    scores: { accuracy, per_task: data.per_task },
+    scores: { accuracy, per_task: data.per_task, synthetic: data.synthetic },
     delta: null,
   };
 }
@@ -158,6 +167,8 @@ function addIterationChapter(
     status: IterationChapter["status"];
     hypothesis?: string;
     phases: IterationChapter["phases"];
+    threadId?: string;
+    isForkBranch?: boolean;
   },
 ) {
   dispatch({
@@ -168,6 +179,8 @@ function addIterationChapter(
       status: payload.status,
       phases: payload.phases,
       hypothesis: payload.hypothesis,
+      threadId: payload.threadId,
+      isForkBranch: payload.isForkBranch,
     },
   });
 }
@@ -199,10 +212,11 @@ export function startSSE(
       const data = e.data as RunEventData;
       const checkpoint = valueLabel(data.checkpoint_id) ?? "unknown";
       const node = valueLabel(data.node) ?? "graph";
-      if (checkpoint !== "unknown" && node !== "graph") {
+      const candidate = valueLabel(data.candidate_id) ?? valueLabel(data.candidate);
+      if (checkpoint !== "unknown" && candidate) {
         dispatch({
           type: "SET_CHECKPOINT_ID",
-          payload: { candidate: node, checkpointId: checkpoint },
+          payload: { candidate, checkpointId: checkpoint },
         });
       }
       dispatch({
@@ -222,6 +236,8 @@ export function startSSE(
         status: "running",
         phases: { propose: true, validate: false, benchmark: false, frontier: false },
         hypothesis: "Proposing candidate update for benchmark tasks",
+        threadId: valueLabel(data.thread_id) ?? undefined,
+        isForkBranch: valueLabel(data.thread_id)?.includes(".fork."),
       });
       dispatch({
         type: "ADD_LOG_ENTRY",
@@ -257,6 +273,8 @@ export function startSSE(
         status: "running",
         phases: { propose: true, validate: true, benchmark: true, frontier: false },
         hypothesis: `Benchmarking ${candidate} across eval tasks`,
+        threadId: valueLabel(data.thread_id) ?? undefined,
+        isForkBranch: valueLabel(data.thread_id)?.includes(".fork."),
       });
 
       if (data.per_task) {
@@ -294,6 +312,8 @@ export function startSSE(
         status: chapterStatusFromEvent(status),
         phases: { propose: true, validate: true, benchmark: true, frontier: true },
         hypothesis: `Iteration ${iteration} ${status}`,
+        threadId: valueLabel(data.thread_id) ?? undefined,
+        isForkBranch: valueLabel(data.thread_id)?.includes(".fork."),
       });
       dispatch({
         type: "ADD_LOG_ENTRY",
@@ -327,7 +347,9 @@ export function startSSE(
           type: "APPLY_FRONTIER_UPDATE",
           payload: {
             frontier: data.frontier ?? [],
+            frontierIds: data.frontier_ids,
             bestCandidate: data.best_candidate ?? null,
+            bestCandidateId: data.best_candidate_id,
             delta: data.delta ?? null,
           },
         });

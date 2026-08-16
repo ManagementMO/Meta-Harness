@@ -1,8 +1,10 @@
 # Architecture Overview (Section 1) — Meta-Harness
 
-*The locked architecture for the Meta-Harness project: the LangGraph-native
-substrate around the Stanford reference framework's Meta-Harness paradigm,
-scoped local-only, single-user, with no feature cuts.*
+*Historical architecture baseline. Current source preserves the two-graph
+shape but supersedes mutable name-based candidates with immutable candidate
+bundles, a shared evaluator, explicit research/autonomous modes, evidence
+ledgers, and durable branch projections. Use the deep research brief and current
+tests when this document conflicts with implementation.*
 
 ---
 
@@ -61,19 +63,20 @@ the outer machine's `propose` node.
 - **`propose` node** — spawns a Claude Code subprocess (`claude_wrapper.py`)
   with `--append-system-prompt $(cat skills/<domain>/SKILL.md)`,
   `--dangerously-skip-permissions`, `--disable-slash-commands`, an empty
-  `--plugin-dir`, and `--output-format stream-json`. The subprocess writes
-  `agents/<name>.py` + `pending_eval.json` and returns rich session metadata
-  (token usage, files read/written, cost, exit code). Per-iteration logs go
-  to `runs/{run-id}/proposer-sessions/iter-{N}/{session.json,
-  transcript.txt, system_prompt.txt}`.
-- **Outer machine** — writes `frontier_val.json`, appends to
-  `evolution_summary.jsonl`, and writes a Postgres checkpoint per node
-  transition.
-- **Inner machine** — writes per-trial trace artifacts (`orient.json`,
-  `plan.json`, `act-messages.jsonl`, `act-tools.jsonl`, `verify.json`,
-  `summary.md`) under `runs/{run-id}/candidates/{N}/traces/`.
-- **Dashboard** — consumes the Postgres checkpoint stream + filesystem
-  traces via the FastAPI backend.
+  `--plugin-dir`, and `--output-format stream-json`. The subprocess writes one
+  run-scoped proposal plus `pending_eval.json`; the runtime copies and hashes
+  those bytes into `candidates/{candidate_id}/source/harness.py` before any
+  validation or evaluation. Session metadata records measured/unknown usage,
+  files, cost, exit status, and authorization profile under
+  `runs/{run-id}/proposer-sessions/iter-{N}/`.
+- **Outer machine** — evaluates an explicit baseline and candidate populations,
+  writes the archive/frontier and compact summary, appends evidence/lifecycle
+  events, and checkpoints each node when persistence is enabled.
+- **Inner machine** — writes raw per-attempt traces under immutable candidate IDs;
+  the evaluator stores content-addressed copies and links every result to the
+  candidate manifest, task hash, model, evaluator, runtime, and sandbox policy.
+- **Dashboard** — consumes REST/SSE and checkpoint history through FastAPI and
+  shows candidate IDs, provenance, metric status, failures, and artifact links.
 
 ## Locked decisions at the architecture level
 

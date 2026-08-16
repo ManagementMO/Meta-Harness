@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -83,6 +84,7 @@ def test_verify_subprocess_uses_shared_sandbox_executor(monkeypatch, tmp_path: P
 
 
 async def test_plan_uses_initial_context_and_harness_llm_call():
+    from app.meta_harness.harness import CodingAgentHarness  # noqa: PLC0415
     from app.meta_harness.inner import plan  # noqa: PLC0415
 
     class _Block:
@@ -93,11 +95,14 @@ async def test_plan_uses_initial_context_and_harness_llm_call():
     class _Response:
         content = [_Block()]
 
-    class _Harness:
+    class _Harness(CodingAgentHarness):
         PLAN_PROMPT_TEMPLATE = "{instruction}|{tree}|{lang}|{test_runner}|{tests}"
         seen_messages = None
         seen_tools = None
         seen_tool_choice = None
+
+        def __init__(self) -> None:
+            pass
 
         def _build_initial_context(self, orient_summary: dict) -> dict:
             return {
@@ -126,6 +131,134 @@ async def test_plan_uses_initial_context_and_harness_llm_call():
     assert "raw-tree" not in harness.seen_messages[0]["content"]
     assert harness.seen_tools[0]["name"] == "submit_plan"
     assert harness.seen_tool_choice == {"type": "tool", "name": "submit_plan"}
+
+
+async def test_verify_failure_feedback_reaches_retry_as_provider_dicts(
+    tmp_path: Path,
+):
+    from app.meta_harness.harness import CodingAgentHarness  # noqa: PLC0415
+    from app.meta_harness.inner import run_inner_loop  # noqa: PLC0415
+
+    class RetryHarness(CodingAgentHarness):
+        MAX_ACT_TURNS = 4
+        MAX_VERIFY_RETRIES = 2
+
+        def __init__(self) -> None:
+            self.act_messages: list[list[dict]] = []
+
+        async def _call_llm(self, messages, tools, *, tool_choice=None):
+            usage = SimpleNamespace(
+                input_tokens=10,
+                output_tokens=2,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if tools[0]["name"] == "submit_plan":
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="submit_plan",
+                    id="plan",
+                    input={"summary": "solve", "steps": []},
+                )
+                return SimpleNamespace(content=[block], usage=usage)
+            self.act_messages.append(messages)
+            feedback = any(
+                isinstance(message.get("content"), str)
+                and "Verification failed" in message["content"]
+                for message in messages
+            )
+            if feedback and not (tmp_path / "solved").exists():
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="write_file",
+                    id="write",
+                    input={"path": "solved", "content": "ok"},
+                )
+            else:
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="task_complete",
+                    id="done",
+                    input={},
+                )
+            return SimpleNamespace(content=[block], usage=usage)
+
+    harness = RetryHarness()
+    final = await run_inner_loop(
+        harness,
+        task_dict={
+            "id": "retry-test",
+            "instruction": "create solved",
+            "test_command": "test -f solved",
+            "runtime_adapter": "generic-command-v1",
+        },
+        workspace=tmp_path,
+    )
+
+    assert final["score"] == 1.0
+    assert final["verify_attempts"] == 2
+    assert all(
+        isinstance(message, dict)
+        for messages in harness.act_messages
+        for message in messages
+    )
+    assert any(
+        "Verification failed" in str(message.get("content"))
+        for messages in harness.act_messages
+        for message in messages
+    )
+
+
+async def test_structural_graph_override_is_invoked(tmp_path: Path):
+    from app.meta_harness.harness import CodingAgentHarness  # noqa: PLC0415
+    from app.meta_harness.inner import build_default_inner_graph, run_inner_loop  # noqa: PLC0415
+
+    class StructuralHarness(CodingAgentHarness):
+        def __init__(self) -> None:
+            self.graph_calls = 0
+
+        def build_inner_graph(self, *, checkpointer=None):
+            self.graph_calls += 1
+            return build_default_inner_graph(self, checkpointer=checkpointer)
+
+        async def _call_llm(self, messages, tools, *, tool_choice=None):
+            usage = SimpleNamespace(
+                input_tokens=1,
+                output_tokens=1,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if tools[0]["name"] == "submit_plan":
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="submit_plan",
+                    id="plan",
+                    input={"summary": "verify", "steps": []},
+                )
+            else:
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="task_complete",
+                    id="done",
+                    input={},
+                )
+            return SimpleNamespace(content=[block], usage=usage)
+
+    harness = StructuralHarness()
+    final = await run_inner_loop(
+        harness,
+        task_dict={
+            "id": "structural-test",
+            "instruction": "finish",
+            "test_command": "true",
+            "runtime_adapter": "generic-command-v1",
+        },
+        workspace=tmp_path,
+    )
+
+    assert final["score"] == 1.0
+    assert harness.graph_calls == 1
+    assert final["telemetry"]["model_call_count"] == 2
 
 
 @requires_anthropic

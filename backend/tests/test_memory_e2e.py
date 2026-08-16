@@ -67,6 +67,8 @@ async def test_cross_run_pattern_propagation(tmp_path: Path):
             budget=2,
             checkpointer=saver,
             memory_store=mstore,
+            mode="autonomous",
+            allow_global_memory=True,
         )
         assert final_a["iteration"] == 2
 
@@ -105,19 +107,14 @@ async def test_cross_run_pattern_propagation(tmp_path: Path):
             budget=1,
             checkpointer=saver,
             memory_store=mstore,
+            mode="autonomous",
+            allow_global_memory=True,
         )
         assert final_b["iteration"] == 1
 
         # Patterns from run-A are still there after run-B
         patterns_after_b = await search_patterns(mstore, domain=domain, limit=10)
         assert len(patterns_after_b) >= 1  # not wiped by run-B
-
-    # Cleanup mock stubs
-    for final in (final_a, final_b):
-        for c in final.get("candidates", []):
-            stub = REPO_ROOT / "agents" / f"{c['name']}.py"
-            if stub.exists():
-                stub.unlink()
 
 
 # ── 2. Format injection into proposer prior ──────────────────────────
@@ -284,9 +281,15 @@ async def test_accepted_candidate_writes_memory_pattern(tmp_path: Path):
             budget=2,
             checkpointer=saver,
             memory_store=mstore,
+            mode="autonomous",
+            allow_global_memory=True,
         )
 
-        accepted = [c for c in final["candidates"] if c["status"] == "accepted"]
+        accepted = [
+            candidate
+            for candidate in final["candidates"]
+            if candidate["status"] in {"best", "frontier"}
+        ]
         if accepted:
             # Search a wide window so a polluted namespace doesn't hide
             # newly-written entries.
@@ -302,11 +305,6 @@ async def test_accepted_candidate_writes_memory_pattern(tmp_path: Path):
                 f"after {len(accepted)} accepted candidate(s); none found "
                 f"among {len(entries)} entries scanned"
             )
-
-    for c in final.get("candidates", []):
-        stub = REPO_ROOT / "agents" / f"{c['name']}.py"
-        if stub.exists():
-            stub.unlink()
 
 
 # ── 8. Filesystem artifacts still correct ────────────────────────────
@@ -330,6 +328,8 @@ async def test_filesystem_artifacts_unaffected_by_memory(tmp_path: Path):
             budget=2,
             checkpointer=saver,
             memory_store=mstore,
+            mode="autonomous",
+            allow_global_memory=True,
         )
 
     # All standard artifacts must exist
@@ -351,20 +351,15 @@ async def test_filesystem_artifacts_unaffected_by_memory(tmp_path: Path):
         for line in (run_dir / "evolution_summary.jsonl").read_text().strip().split("\n")
         if line.strip()
     ]
-    assert len(rows) == 2
+    assert len(rows) == 3
     for row in rows:
         assert "parent_candidate_name" in row
         assert "iteration" in row
         assert "candidate" in row
+        assert "candidate_id" in row
 
-    # Per-candidate artifacts
-    for c in final["candidates"]:
-        cand_dir = run_dir / "candidates" / c["name"]
-        assert (cand_dir / "eval-result.json").exists()
-        assert (cand_dir / "status.json").exists()
-
-    # Cleanup
-    for c in final.get("candidates", []):
-        stub = REPO_ROOT / "agents" / f"{c['name']}.py"
-        if stub.exists():
-            stub.unlink()
+    for candidate in final["candidates"]:
+        candidate_dir = run_dir / "candidates" / candidate["candidate_id"]
+        assert (candidate_dir / "candidate.json").exists()
+        assert (candidate_dir / "eval-result.json").exists()
+        assert (candidate_dir / "status.json").exists()

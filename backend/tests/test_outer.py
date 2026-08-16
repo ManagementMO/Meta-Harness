@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.meta_harness.outer import run_outer_loop  # noqa: E402
+from app.meta_harness.reports import build_run_report  # noqa: E402
 from app.meta_harness.runs import candidate_dir, make_run_dir, make_run_path  # noqa: E402
 
 
@@ -70,7 +71,9 @@ async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
     # Loop completed both iterations.
     assert final["iteration"] == 2
     assert final["budget_remaining"] == 0
-    assert len(final["candidates"]) == 2
+    assert len(final["candidates"]) == 3
+    assert final["candidates"][0]["name"] == "baseline"
+    assert final["best_candidate_id"].startswith("cand_")
 
     # Required filesystem artifacts.
     assert (run_dir / "pending_eval.json").exists()
@@ -94,9 +97,11 @@ async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
         for line in (run_dir / "evolution_summary.jsonl").read_text().strip().split("\n")
         if line.strip()
     ]
-    assert len(rows) == 2
-    assert rows[0]["parent_candidate_name"] is None  # first iter, no parent
-    assert "parent_candidate_name" in rows[1]
+    assert len(rows) == 3
+    assert rows[0]["candidate"] == "baseline"
+    assert rows[0]["parent_candidate_name"] is None
+    assert rows[1]["parent_candidate_name"] == "baseline"
+    assert "parent_candidate_name" in rows[2]
     for row in rows:
         assert "iteration" in row
         assert "candidate" in row
@@ -104,13 +109,131 @@ async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
         assert "delta" in row
 
     # Per-candidate artifacts.
-    for c in final["candidates"]:
-        cand_dir = run_dir / "candidates" / c["name"]
-        assert (cand_dir / "eval-result.json").exists()
-        assert (cand_dir / "status.json").exists()
+    for candidate in final["candidates"]:
+        candidate_dir = run_dir / "candidates" / candidate["candidate_id"]
+        assert (candidate_dir / "candidate.json").exists()
+        assert (candidate_dir / "eval-result.json").exists()
+        assert (candidate_dir / "status.json").exists()
+        assert (candidate_dir / "source" / "harness.py").exists()
 
-    # Cleanup the mock harness files written to repo-root agents/.
-    for c in final["candidates"]:
-        stub = REPO_ROOT / "agents" / f"{c['name']}.py"
-        if stub.exists():
-            stub.unlink()
+    report = build_run_report(run_dir)
+    assert report["archive_size"] == 3
+    assert report["frontier_size"] == len(report["frontier_ids"])
+    assert set(report["results"]) == {
+        candidate["candidate_id"] for candidate in final["candidates"]
+    }
+    assert report["search_efficiency"]["measurement_status"] == "synthetic"
+    assert report["artifact_retention"]["keep_raw_traces"] is True
+
+
+async def test_research_outer_loop_rejects_non_scoped_proposal(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from app.meta_harness import proposer as proposer_module
+
+    run_dir = make_run_dir(tmp_path, "test-proposal-policy", fresh=True)
+
+    def propose_outside_scope(*, run_dir, iteration, parent_name, repo_root):
+        source = run_dir / "outside.py"
+        source.write_text(
+            "from app.meta_harness.harness import CodingAgentHarness\n\n"
+            "class OutsideHarness(CodingAgentHarness):\n"
+            "    pass\n"
+        )
+        payload = {
+            "iteration": iteration,
+            "candidates": [
+                {
+                    "name": "outside",
+                    "source_path": str(source),
+                    "class_name": "OutsideHarness",
+                    "parent": parent_name,
+                    "hypothesis": "outside scope",
+                    "axis": "exploration",
+                }
+            ],
+        }
+        (run_dir / "pending_eval.json").write_text(json.dumps(payload))
+        return payload
+
+    monkeypatch.setattr(proposer_module, "mock_propose", propose_outside_scope)
+
+    try:
+        await run_outer_loop(
+            run_dir=run_dir,
+            repo_root=REPO_ROOT,
+            eval_tasks_dir=REPO_ROOT / "eval" / "tasks",
+            mock_proposer=True,
+            mock_bench=True,
+            trials=1,
+            bench_workers=1,
+            budget=1,
+        )
+    except ValueError as exc:
+        assert "run-scoped" in str(exc) or "inside" in str(exc)
+    else:
+        raise AssertionError("research run accepted a non-scoped proposal")
+
+
+async def test_outer_loop_evaluates_every_proposed_candidate(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from app.meta_harness import proposer as proposer_module
+
+    run_dir = make_run_dir(tmp_path, "test-population", fresh=True)
+
+    def propose_population(*, run_dir, iteration, parent_name, repo_root):
+        proposals = []
+        for suffix in ("a", "b"):
+            name = f"population_{suffix}"
+            class_name = f"Population{suffix.upper()}"
+            source = run_dir / "proposals" / f"iter-{iteration}" / f"{name}.py"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "from app.meta_harness.harness import CodingAgentHarness\n\n"
+                f"class {class_name}(CodingAgentHarness):\n"
+                "    pass\n"
+            )
+            proposals.append(
+                {
+                    "name": name,
+                    "source_path": str(source),
+                    "class_name": class_name,
+                    "parent": parent_name,
+                    "hypothesis": f"population hypothesis {suffix}",
+                    "axis": "exploration",
+                    "expected_score_delta": 0.1,
+                }
+            )
+        payload = {"iteration": iteration, "candidates": proposals}
+        (run_dir / "pending_eval.json").write_text(json.dumps(payload))
+        return payload
+
+    monkeypatch.setattr(proposer_module, "mock_propose", propose_population)
+
+    final = await run_outer_loop(
+        run_dir=run_dir,
+        repo_root=REPO_ROOT,
+        eval_tasks_dir=REPO_ROOT / "eval" / "tasks",
+        mock_proposer=True,
+        mock_bench=True,
+        trials=2,
+        bench_workers=2,
+        budget=1,
+    )
+
+    assert len(final["candidates"]) == 3
+    baseline_id = final["candidates"][0]["candidate_id"]
+    proposed = final["candidates"][1:]
+    assert {candidate["name"] for candidate in proposed} == {
+        "population_a",
+        "population_b",
+    }
+    assert all(candidate["parent_ids"] == [baseline_id] for candidate in proposed)
+    assert all(candidate["scores"] is not None for candidate in proposed)
+    assert all(
+        (run_dir / "candidates" / candidate["candidate_id"] / "eval-result.json").exists()
+        for candidate in proposed
+    )

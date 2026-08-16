@@ -2,17 +2,19 @@
 search space).
 
 Per Appendix C §C.9 / INTERFACES.md §4. The 6 fixed inner-loop tools
-and the 5 phase boundaries are NOT overridable; everything below is.
+are not overridable. The default phase graph is replaceable only through
+the explicit structural hook.
 
 Candidates subclass ``CodingAgentHarness`` and override any subset of
-the 11 marked points. Override 11 (structural) is implemented by
-overriding ``build_inner_graph()`` in ``app.meta_harness.inner``.
+the 11 marked points. Override 11 is the ``build_inner_graph()`` method,
+which delegates to the fixed default graph unless a candidate replaces it.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 import anthropic
@@ -100,6 +102,61 @@ PLAN_TOOL_SCHEMA: dict[str, Any] = {
 }
 
 
+class HarnessTelemetry:
+    def __init__(self) -> None:
+        self.model_calls: list[dict[str, Any]] = []
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cached_tokens = 0
+        self.usage_available = True
+
+    def record(
+        self,
+        response: Any,
+        *,
+        started_at: float,
+        finished_at: float,
+        error: str | None = None,
+    ) -> None:
+        usage = getattr(response, "usage", None) if response is not None else None
+        if usage is None:
+            self.usage_available = False
+            input_tokens = output_tokens = cached_tokens = 0
+        else:
+            input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+            output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+            cached_tokens = int(
+                getattr(usage, "cache_read_input_tokens", 0) or 0
+            ) + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+            self.input_tokens += input_tokens
+            self.output_tokens += output_tokens
+            self.cached_tokens += cached_tokens
+        self.model_calls.append(
+            {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cached_tokens": cached_tokens,
+                "model": (
+                    getattr(response, "model", None)
+                    if response is not None
+                    else None
+                ),
+                "wall_seconds": round(finished_at - started_at, 6),
+                "error": error,
+            }
+        )
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "model_calls": list(self.model_calls),
+            "model_call_count": len(self.model_calls),
+            "input_tokens": self.input_tokens if self.usage_available else None,
+            "output_tokens": self.output_tokens if self.usage_available else None,
+            "cached_tokens": self.cached_tokens if self.usage_available else None,
+            "usage_available": self.usage_available,
+        }
+
+
 class CodingAgentHarness:
     """Base inner-loop harness. Override any of the marked points."""
 
@@ -122,6 +179,7 @@ class CodingAgentHarness:
     MAX_TOKENS: int = 4096
 
     def __init__(self, *, api_key: str | None = None) -> None:
+        self.telemetry = HarnessTelemetry()
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not self.api_key:
             raise RuntimeError(
@@ -133,6 +191,42 @@ class CodingAgentHarness:
         # blocks the event loop). All node bodies in inner.py and
         # outer.py are async; ``_call_llm`` is awaited.
         self._client = anthropic.AsyncAnthropic(api_key=self.api_key)
+
+    def _telemetry(self) -> HarnessTelemetry:
+        telemetry = getattr(self, "telemetry", None)
+        if not isinstance(telemetry, HarnessTelemetry):
+            telemetry = HarnessTelemetry()
+            self.telemetry = telemetry
+        return telemetry
+
+    async def call_llm(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        tool_choice: dict[str, Any] | None = None,
+    ) -> Any:
+        started_at = time.monotonic()
+        try:
+            response = await self._call_llm(
+                messages,
+                tools,
+                tool_choice=tool_choice,
+            )
+        except Exception as exc:
+            self._telemetry().record(
+                None,
+                started_at=started_at,
+                finished_at=time.monotonic(),
+                error=type(exc).__name__,
+            )
+            raise
+        self._telemetry().record(
+            response,
+            started_at=started_at,
+            finished_at=time.monotonic(),
+        )
+        return response
 
     # ──────────────────────────────────────────────────────────────────
     # Override points 5–10 (methods).
@@ -209,6 +303,7 @@ class CodingAgentHarness:
             + messages[-18:]
         )
 
-    # Override 11 (structural) is implemented by overriding the
-    # build_inner_graph() function in app.meta_harness.inner; nothing to
-    # define on the class itself.
+    def build_inner_graph(self, *, checkpointer: Any = None) -> Any:
+        from app.meta_harness.inner import build_default_inner_graph
+
+        return build_default_inner_graph(self, checkpointer=checkpointer)

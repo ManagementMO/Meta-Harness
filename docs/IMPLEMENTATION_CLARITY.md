@@ -7,12 +7,12 @@ contracts live, and what behavior is intentionally placeholder.
 
 When there is disagreement, use this precedence:
 
-1. `docs/INTERFACES.md` (cross-component contracts)
-2. `ARCHITECTURE_SECTION_1.md` (locked architecture decisions)
-3. `docs/PROJECT_LAYOUT.md` (placement and naming constraints)
-4. `docs/DEFINITION_OF_DONE.md` (acceptance criteria)
-5. `docs/BUILD_ORDER.md` (step DoD sequencing)
-6. live code in `backend/app/**` and `frontend/dashboard/src/**`
+1. Current source behavior and current tests.
+2. Immutable run manifests, candidate manifests, evaluation results, and evidence events.
+3. Current repository configuration and command output.
+4. `docs/META_HARNESS_DEEP_RESEARCH_BRIEF.md` for research invariants and roadmap.
+5. `docs/INTERFACES.md` and `ARCHITECTURE_SECTION_1.md` where they match current source.
+6. Historical build-order, demo, status, and handoff documents.
 
 `docs/PROJECT_KNOWLEDGE_BASE.md` is comprehensive context and rationale; if it
 disagrees with (1)-(5) or current code, treat it as needing an update.
@@ -55,11 +55,14 @@ Key files:
 
 ## Intentional placeholders still present
 
-- Diff and test-output fetch helpers in frontend return `null` when no backend
-  endpoint is available.
 - Some UI panels can show empty-state placeholders during real-run warmup.
-- Real token/cost aggregation for benchmark summaries remains limited in parts
-  of the backend path (see corresponding notes in project docs).
+- Provider token usage is measured when exposed; cost remains explicitly
+  `unknown` until a versioned pricing or billed-cost source is configured.
+- Lint remains explicitly `unknown`; file-scope changes are measured.
+- Recursive/RLM execution is an interface boundary only; no recursive backend
+  is registered.
+- Active worker tasks remain process-owned even though evidence and branch
+  lifecycle projections are durable.
 
 ## Quick verification checklist
 

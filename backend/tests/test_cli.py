@@ -65,6 +65,9 @@ def test_loop_mock_no_persistent_writes_artifacts(tmp_path: Path, monkeypatch) -
         assert (run_dir / "frontier_val.json").exists()
         assert (run_dir / "evolution_summary.jsonl").exists()
         assert (run_dir / "manifest.json").exists()
+        refused = runner.invoke(app, ["finalize", run_name])
+        assert refused.exit_code == 2
+        assert "synthetic" in refused.output
     finally:
         run_dir = REPO_ROOT / "runs" / run_name
         if run_dir.exists():
