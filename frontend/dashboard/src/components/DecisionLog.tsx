@@ -56,7 +56,7 @@ const LogEntryRow = memo(function LogEntryRow({
         {selected && (
           <span aria-hidden="true" className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-frost/70" />
         )}
-        <span className="font-mono text-[10px] text-ink-ghost w-14 shrink-0 pt-0.5 tabular-nums">
+        <span className="font-mono text-[10px] text-ink-low w-14 shrink-0 pt-0.5 tabular-nums">
           {entry.timestamp.includes("T") ? entry.timestamp.slice(11, 19) : entry.timestamp}
         </span>
         <span
@@ -143,8 +143,7 @@ const ChapterBlock = memo(function ChapterBlock({
           <p className="mt-1.5 text-[12px] leading-[1.55] text-ink-mid">{chapter.hypothesis}</p>
         )}
         {memoryNote && (
-          <p className="mt-1.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-sand/80">
-            <span aria-hidden="true" className="w-1 h-1 rounded-full bg-sand/70" />
+          <p className="mt-1.5 font-mono text-[10px] tracking-[0.04em] text-ink-low">
             {memoryNote}
           </p>
         )}

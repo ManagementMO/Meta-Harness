@@ -68,13 +68,12 @@ export function TopBar({ onReplay }: { onReplay?: () => void }) {
           </>
         )}
         <StatusPill state={pill} />
-        {run?.isSynthetic && <span className="hidden md:block font-mono text-[10px] uppercase tracking-[0.1em] text-sand/80">synthetic fixture</span>}
       </div>
 
       <div className="flex items-center gap-3 shrink-0">
         {run && (
           <span className="hidden lg:block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-low">
-            {run.mode ?? mode} · iter {run.iteration}
+            {run.mode ?? mode}
           </span>
         )}
         {onReplay && (
