@@ -289,30 +289,44 @@ pre {
 .react-flow__pane.dragging {
   cursor: grabbing;
 }
+/* Zoom controls: obsidian, not xyflow's white defaults. The library styles
+   consume these variables, so this wins regardless of stylesheet order. */
+.react-flow {
+  --xy-controls-button-background-color: rgba(12, 16, 22, 0.92);
+  --xy-controls-button-background-color-hover: rgba(28, 34, 42, 0.95);
+  --xy-controls-button-color: #8e99a8;
+  --xy-controls-button-color-hover: #e9edf2;
+  --xy-controls-button-border-color: rgba(255, 255, 255, 0.1);
+  --xy-controls-box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+}
 .react-flow__controls {
-  box-shadow: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   margin: 10px;
+  box-shadow: none;
 }
-.react-flow__controls-button {
-  width: 22px;
-  height: 22px;
-  background: rgba(12, 16, 22, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+.react-flow__controls .react-flow__controls-button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--xy-controls-button-border-color);
   border-radius: 6px;
-  color: #8e99a8;
-  transition: color 150ms var(--ease-glass), background-color 150ms var(--ease-glass);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition:
+    color 150ms var(--ease-glass),
+    background-color 150ms var(--ease-glass),
+    border-color 150ms var(--ease-glass);
 }
-.react-flow__controls-button:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e9edf2;
+.react-flow__controls .react-flow__controls-button:hover {
+  border-color: rgba(255, 255, 255, 0.18);
 }
-.react-flow__controls-button svg {
+.react-flow__controls .react-flow__controls-button:disabled {
+  opacity: 0.35;
+}
+.react-flow__controls .react-flow__controls-button svg {
   fill: currentColor;
-  max-width: 10px;
-  max-height: 10px;
+  max-width: 11px;
+  max-height: 11px;
 }
 
 /* ── Reduced motion: render final states instantly ── */
