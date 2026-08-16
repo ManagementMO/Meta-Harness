@@ -8,7 +8,7 @@ import { Badge } from "./ui/Badge";
 import { PhasePipeline } from "./ui/PhasePipeline";
 import { GlassPanel, PanelHeader, PanelTitle } from "./ui/GlassPanel";
 import { ForkEventCard } from "./ForkEvent";
-import { IconArrowDown, IconCaretDown, IconCaretRight, IconListChecks } from "./ui/icons";
+import { IconArrowDown, IconCaretDown, IconCaretRight, IconListChecks, IconMagnifyingGlass } from "./ui/icons";
 import { cn } from "@/lib/cn";
 import type { IterationChapter, LogEntry, LogFilter, LogTag } from "@/lib/types";
 
@@ -251,6 +251,20 @@ export function DecisionLog() {
       <PanelHeader>
         <PanelTitle icon={<IconListChecks size={13} />}>Decision Log</PanelTitle>
         <span className="ml-auto" />
+        <div className="relative hidden xl:block">
+          <IconMagnifyingGlass
+            size={11}
+            className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-ghost pointer-events-none"
+          />
+          <input
+            type="search"
+            value={filters.searchQuery}
+            onChange={(e) => dispatch({ type: "SET_FILTER", payload: { searchQuery: e.target.value } })}
+            placeholder="Filter entries"
+            aria-label="Filter log entries"
+            className="well h-6 w-36 rounded-[6px] pl-6 pr-2 font-mono text-[10px] text-ink placeholder:text-ink-ghost outline-none [&::-webkit-search-cancel-button]:appearance-none"
+          />
+        </div>
         <FilterBar
           filters={filtersForBar}
           active={filters.activeFilter}

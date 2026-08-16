@@ -24,12 +24,16 @@ export function ForkModal({ candidateName, checkpointId, parentThreadId, onClose
   const reduced = useReducedMotion();
 
   useEffect(() => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     textareaRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      trigger?.focus();
+    };
   }, [onClose]);
 
   const handleCreate = async () => {

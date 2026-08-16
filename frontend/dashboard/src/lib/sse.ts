@@ -329,6 +329,9 @@ export function startSSE(
     "branch-cancelled": (e) => {
       const data = e.data as RunEventData;
       const thread = valueLabel(data.thread_id) ?? "branch";
+      if (valueLabel(data.thread_id)) {
+        dispatch({ type: "CANCEL_BRANCH", payload: thread });
+      }
       dispatch({
         type: "ADD_LOG_ENTRY",
         payload: eventLogEntry(e, `${thread} cancelled`, "fork"),
@@ -361,6 +364,7 @@ export function startSSE(
     "error": (e) => {
       const data = e.data as RunEventData;
       const message = valueLabel(data.message) ?? "stream error";
+      dispatch({ type: "SET_ERROR", payload: message });
       dispatch({
         type: "ADD_LOG_ENTRY",
         payload: eventLogEntry(e, message, "fail"),
