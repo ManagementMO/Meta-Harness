@@ -354,8 +354,10 @@ function TrajectoryFlow() {
   }, [tree, selectedNode, requestFork]);
 
   // Refit as the tree grows — debounced so streams don't thrash the camera.
-  // Never fit below readable zoom: clamp and recentre on the focus node instead.
+  // Never fit below readable zoom: clamp to 0.82 and keep the focus node in
+  // frame while showing as much of the tree as the panel allows.
   const nodesRef = useRef(nodes);
+  const canvasRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
@@ -365,28 +367,69 @@ function TrajectoryFlow() {
     fitTimer.current = setTimeout(async () => {
       await fitView({ padding: 0.15, maxZoom: 1.05, duration: 300 });
       const { zoom } = getViewport();
-      if (zoom < 0.72) {
-        const latest = nodesRef.current;
-        const focus =
-          latest.find((n) => n.data.isSelected) ??
-          latest.find((n) => n.data.node.status === "best") ??
-          latest[latest.length - 1];
-        if (focus) {
-          void setCenter(focus.position.x + NODE_W / 2, focus.position.y + NODE_H / 2, {
-            zoom: 0.82,
-            duration: 300,
-          });
-        }
-      }
+      const el = canvasRef.current;
+      if (zoom >= 0.72 || !el) return;
+
+      const latest = nodesRef.current;
+      const focus =
+        latest.find((n) => n.data.isSelected) ??
+        latest.find((n) => n.data.node.status === "best") ??
+        latest[latest.length - 1];
+      if (!focus) return;
+
+      const targetZoom = 0.82;
+      const viewW = el.clientWidth / targetZoom;
+      const viewH = el.clientHeight / targetZoom;
+      const minX = Math.min(...latest.map((n) => n.position.x));
+      const maxX = Math.max(...latest.map((n) => n.position.x + NODE_W));
+      const minY = Math.min(...latest.map((n) => n.position.y));
+      const maxY = Math.max(...latest.map((n) => n.position.y + NODE_H));
+
+      const clampCenter = (focusC: number, min: number, max: number, view: number) =>
+        max - min <= view
+          ? min + (max - min) / 2
+          : Math.min(Math.max(focusC, min + view / 2), max - view / 2);
+
+      void setCenter(
+        clampCenter(focus.position.x + NODE_W / 2, minX, maxX, viewW),
+        clampCenter(focus.position.y + NODE_H / 2, minY, maxY, viewH),
+        { zoom: targetZoom, duration: 300 },
+      );
     }, 140);
     return () => {
       if (fitTimer.current) clearTimeout(fitTimer.current);
     };
   }, [nodes.length, fitView, getViewport, setCenter]);
 
+  // Bring a newly selected candidate into view — without yanking the camera
+  // when it is already visible.
+  useEffect(() => {
+    if (!selectedNode) return;
+    const el = canvasRef.current;
+    if (!el) return;
+    const focus = nodesRef.current.find((n) => n.id === selectedNode);
+    if (!focus) return;
+    const { x, y, zoom } = getViewport();
+    const viewMinX = -x / zoom;
+    const viewMinY = -y / zoom;
+    const viewMaxX = viewMinX + el.clientWidth / zoom;
+    const viewMaxY = viewMinY + el.clientHeight / zoom;
+    const pad = 8;
+    const inside =
+      focus.position.x >= viewMinX + pad &&
+      focus.position.x + NODE_W <= viewMaxX - pad &&
+      focus.position.y >= viewMinY + pad &&
+      focus.position.y + NODE_H <= viewMaxY - pad;
+    if (inside) return;
+    void setCenter(focus.position.x + NODE_W / 2, focus.position.y + NODE_H / 2, {
+      zoom: Math.max(zoom, 0.82),
+      duration: 300,
+    });
+  }, [selectedNode, getViewport, setCenter]);
+
   return (
     <>
-      <div className="flex-1 min-h-0 relative">
+      <div ref={canvasRef} className="flex-1 min-h-0 relative">
         {tree.length === 0 && (
           <div className="absolute inset-0 z-10 flex items-center justify-center">
             <EmptyState icon={<IconTreeStructure size={20} />} title="Awaiting first candidate">
