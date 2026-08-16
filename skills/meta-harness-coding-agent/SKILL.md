@@ -60,9 +60,10 @@ evaluator contracts.
    ```
 3. **No combinatorial sweeps.** Don't propose 3 candidates that vary one
    constant. Propose 1 candidate that introduces a new mechanism.
-4. **Keep the experiment model fixed.** Do not override `MODEL` or the
-   telemetry-owning `call_llm()` boundary. `_call_llm()` remains evolvable,
-   but provider usage must flow through `call_llm()`.
+4. **Keep the experiment model and provider fixed.** Do not override `MODEL`,
+   `PROVIDER`, or the telemetry-owning `call_llm()` boundary. Avoid overriding
+   `_call_llm()` unless the change remains provider-neutral; never call an SDK
+   client directly or bypass `call_llm()` telemetry.
 
 ## Workflow (mandatory order)
 

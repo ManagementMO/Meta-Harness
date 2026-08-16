@@ -44,6 +44,7 @@ meta-harness/                                              # Repo root (uv works
 │   │   │   ├── artifacts.py                               # Atomic and content-addressed artifact storage
 │   │   │   ├── candidates.py                              # Immutable candidate materialization, policy checks, loading
 │   │   │   ├── evaluator.py                               # Shared search/holdout evaluator and telemetry aggregation
+│   │   │   ├── providers.py                               # Anthropic/Google normalized model providers, quotas, pricing
 │   │   │   ├── runtime.py                                 # Task runtime adapter registry
 │   │   │   ├── execution.py                               # Fixed-graph and future recursive backend boundary
 │   │   │   ├── ledger.py                                  # Append-only evidence and lifecycle transitions

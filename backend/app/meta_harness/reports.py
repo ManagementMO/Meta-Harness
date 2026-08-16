@@ -113,8 +113,11 @@ async def finalize_run(
         model_provider=search_policy.model_provider,
         trials=trials or search_policy.trials,
         workers=workers or search_policy.workers,
+        max_act_turns=search_policy.max_act_turns,
+        max_verify_retries=search_policy.max_verify_retries,
         allow_global_memory=False,
         allow_recursive_children=False,
+        random_seed=search_policy.random_seed,
         synthetic=False,
     )
     evaluator = Evaluator(
@@ -273,6 +276,18 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
         float(session.get("duration_seconds") or 0.0)
         for session in proposer_sessions
     )
+    proposer_input_tokens = sum(
+        int((session.get("token_usage") or {}).get("input_tokens") or 0)
+        for session in proposer_sessions
+    )
+    proposer_output_tokens = sum(
+        int((session.get("token_usage") or {}).get("output_tokens") or 0)
+        for session in proposer_sessions
+    )
+    proposer_estimated_cost = sum(
+        float(session.get("estimated_cost_usd") or 0.0)
+        for session in proposer_sessions
+    )
     total_tokens_values = [
         (usage_value(result, "input_tokens"), usage_value(result, "output_tokens"))
         for result in candidate_results.values()
@@ -287,6 +302,19 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
             input_tokens is not None and output_tokens is not None
             for input_tokens, output_tokens in total_tokens_values
         )
+        else None
+    )
+    if total_tokens is not None:
+        total_tokens += proposer_input_tokens + proposer_output_tokens
+    estimated_cost_values = [
+        usage_value(result, "estimated_cost_usd")
+        for result in candidate_results.values()
+    ]
+    total_estimated_cost = (
+        proposer_estimated_cost
+        + sum(value for value in estimated_cost_values if value is not None)
+        if estimated_cost_values
+        and all(value is not None for value in estimated_cost_values)
         else None
     )
     billed_cost_values = [
@@ -326,6 +354,9 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
         else None
     )
     candidate_denominator = max(1, len(candidate_ids) - (1 if baseline_id else 0))
+    effective_cost = (
+        total_billed_cost if total_billed_cost is not None else total_estimated_cost
+    )
     search_efficiency = {
         "measurement_status": (
             "synthetic"
@@ -338,7 +369,9 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
             else ("measured" if total_tokens is not None else "unknown")
         ),
         "cost_measurement_status": (
-            "measured" if total_billed_cost is not None else "unknown"
+            "billed"
+            if total_billed_cost is not None
+            else ("estimated" if total_estimated_cost is not None else "unknown")
         ),
         "wall_measurement_status": (
             "synthetic"
@@ -355,8 +388,8 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
             else None
         ),
         "improvement_per_dollar": (
-            improvement / total_billed_cost
-            if improvement is not None and total_billed_cost
+            improvement / effective_cost
+            if improvement is not None and effective_cost
             else None
         ),
         "improvement_per_wall_hour": (
@@ -365,7 +398,10 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
             else None
         ),
         "candidate_generation_seconds": candidate_generation_seconds,
+        "proposer_input_tokens": proposer_input_tokens,
+        "proposer_output_tokens": proposer_output_tokens,
         "total_tokens": total_tokens,
+        "total_estimated_cost_usd": total_estimated_cost,
         "total_billed_cost_usd": total_billed_cost,
         "total_wall_seconds": total_wall_seconds,
     }
@@ -379,6 +415,7 @@ def build_run_report(run_dir: Path) -> dict[str, Any]:
         "mode": manifest.get("mode"),
         "policy": manifest.get("policy"),
         "parent_policy": manifest.get("parent_policy"),
+        "random_seed": manifest.get("random_seed"),
         "artifact_retention": manifest.get("artifact_retention"),
         "search_budget": manifest.get("budget"),
         "synthetic": manifest.get("synthetic", False),

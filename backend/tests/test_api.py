@@ -165,6 +165,7 @@ def test_run_checkpoint_fork_branch_memory_api_flow():
                     "mock_bench": True,
                     "trials": 1,
                     "workers": 1,
+                    "random_seed": 101,
                 },
             )
             assert created.status_code == 201
@@ -173,6 +174,8 @@ def test_run_checkpoint_fork_branch_memory_api_flow():
             assert body["run_id"] == run_name
             assert body["thread_id"] == run_name
             assert body["status"] == "running"
+            assert body["random_seed"] == 101
+            assert body["proposer_backend"] == "mock"
 
             info = _wait_for_status(client, run_name, "completed")
             assert info["current_iteration"] == 1

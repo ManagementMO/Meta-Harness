@@ -14,6 +14,7 @@ tier).
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import queue
@@ -22,7 +23,18 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+from app.meta_harness.artifacts import atomic_write_json, atomic_write_text
+from app.meta_harness.providers import (
+    estimate_cost_usd,
+    google_retry_delay,
+    is_retryable_google_error,
+    reserve_google_request,
+)
+from app.meta_harness.runs import validate_artifact_name
 
 
 _MOCK_HARNESS_TEMPLATE = '''"""Mock candidate harness for outer-loop testing (iteration {iteration}).
@@ -106,6 +118,228 @@ def mock_propose(
             },
             indent=2,
         )
+    )
+    return payload
+
+
+class GeminiProposalResponse(BaseModel):
+    name: str
+    class_name: str
+    source_code: str
+    hypothesis: str
+    axis: Literal["exploration", "exploitation"]
+    expected_score_delta: float | None = Field(default=None, ge=-0.2, le=0.2)
+
+
+def _bounded_evidence(
+    *,
+    run_dir: Path,
+    parent_candidate_dir: Path,
+    max_summary_chars: int = 16_000,
+    max_trace_chars: int = 32_000,
+) -> dict[str, Any]:
+    evidence: dict[str, Any] = {
+        "evolution_summary": "",
+        "frontier": "",
+        "raw_traces": [],
+    }
+    summary_path = run_dir / "evolution_summary.jsonl"
+    if summary_path.exists():
+        evidence["evolution_summary"] = summary_path.read_text()[-max_summary_chars:]
+    frontier_path = run_dir / "frontier_val.json"
+    if frontier_path.exists():
+        evidence["frontier"] = frontier_path.read_text()[:max_summary_chars]
+    traces_root = parent_candidate_dir / "traces"
+    remaining = max_trace_chars
+    if traces_root.exists():
+        for path in sorted(
+            item for item in traces_root.rglob("*") if item.is_file()
+        ):
+            if remaining <= 0 or path.suffix not in {
+                ".json",
+                ".jsonl",
+                ".md",
+                ".txt",
+            }:
+                continue
+            content = path.read_text(errors="replace")[:remaining]
+            evidence["raw_traces"].append(
+                {
+                    "path": path.relative_to(parent_candidate_dir).as_posix(),
+                    "content": content,
+                }
+            )
+            remaining -= len(content)
+    return evidence
+
+
+def gemini_propose(
+    *,
+    run_dir: Path,
+    iteration: int,
+    parent_name: str | None,
+    repo_root: Path,
+    skill_path: Path,
+    parent_source_path: Path,
+    parent_candidate_dir: Path,
+    proposer_prior: str = "",
+    model: str = "gemini-3.6-flash",
+    seed: int | None = None,
+) -> dict[str, Any]:
+    from google import genai
+    from google.genai import types
+
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is required for the Gemini proposer")
+    evidence = _bounded_evidence(
+        run_dir=run_dir,
+        parent_candidate_dir=parent_candidate_dir,
+    )
+    serialized_evidence = json.dumps(evidence, sort_keys=True).lower()
+    if "eval/holdout" in serialized_evidence or "holdout-result" in serialized_evidence:
+        raise RuntimeError("Gemini proposer evidence crossed the holdout boundary")
+    parent_source = parent_source_path.read_text()
+    system_prompt = (
+        "You are the outer proposer in a controlled Meta-Harness research run. "
+        "Return exactly one generalized CodingAgentHarness candidate through the "
+        "provided JSON schema. Do not include task-specific filenames, task IDs, "
+        "holdout knowledge, model changes, provider changes, or evaluator changes. "
+        "Preserve the provider-agnostic call_llm boundary.\n\n"
+        + skill_path.read_text()
+    )
+    prompt = (
+        f"Iteration: {iteration}\n"
+        f"Parent: {parent_name or 'baseline'}\n\n"
+        "Parent candidate source:\n```python\n"
+        f"{parent_source}\n```\n\n"
+        "Bounded prior evidence from search tasks only:\n"
+        f"{json.dumps(evidence, indent=2)}\n\n"
+        f"Run-local proposer prior:\n{proposer_prior or '(none)'}\n\n"
+        "Diagnose a recurring mechanism from the evidence, then produce one compact "
+        "candidate source module. Override at most three documented harness hooks."
+    )
+    sess_dir = run_dir / "proposer-sessions" / f"iter-{iteration}"
+    sess_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(sess_dir / "system_prompt.txt", system_prompt)
+    atomic_write_text(sess_dir / "user_prompt.txt", prompt)
+    started = time.monotonic()
+    client = genai.Client(api_key=api_key)
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        response_mime_type="application/json",
+        response_schema=GeminiProposalResponse,
+        max_output_tokens=16_384,
+        temperature=0.7,
+        seed=seed,
+        thinking_config=types.ThinkingConfig(
+            thinking_level=types.ThinkingLevel.MEDIUM
+        ),
+    )
+    response = None
+    for attempt in range(5):
+        try:
+            time.sleep(reserve_google_request(model))
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
+            break
+        except Exception as exc:
+            if not is_retryable_google_error(exc) or attempt == 4:
+                raise
+            time.sleep(google_retry_delay(exc, attempt))
+    if response is None:
+        raise RuntimeError("Gemini proposer exhausted retries without a response")
+    duration = time.monotonic() - started
+    if isinstance(response.parsed, GeminiProposalResponse):
+        proposal = response.parsed
+    elif response.parsed is not None:
+        proposal = GeminiProposalResponse.model_validate(response.parsed)
+    elif response.text:
+        proposal = GeminiProposalResponse.model_validate_json(response.text)
+    else:
+        raise RuntimeError("Gemini proposer returned no structured proposal")
+    name = validate_artifact_name(proposal.name, kind="candidate")
+    if not proposal.class_name.isidentifier():
+        raise ValueError(f"invalid Gemini candidate class name: {proposal.class_name}")
+    ast.parse(proposal.source_code, filename=f"{name}.py")
+    proposal_dir = run_dir / "proposals" / f"iter-{iteration}"
+    proposal_dir.mkdir(parents=True, exist_ok=True)
+    harness_path = proposal_dir / f"{name}.py"
+    atomic_write_text(harness_path, proposal.source_code)
+    try:
+        source_path = harness_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        source_path = str(harness_path.resolve())
+    payload = {
+        "schema_version": 1,
+        "iteration": iteration,
+        "candidates": [
+            {
+                "name": name,
+                "source_path": source_path,
+                "class_name": proposal.class_name,
+                "parent": parent_name,
+                "hypothesis": proposal.hypothesis,
+                "axis": proposal.axis,
+                "expected_score_delta": proposal.expected_score_delta,
+            }
+        ],
+    }
+    atomic_write_json(run_dir / "pending_eval.json", payload)
+    usage = response.usage_metadata
+    input_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+    output_tokens = int(getattr(usage, "candidates_token_count", 0) or 0) + int(
+        getattr(usage, "thoughts_token_count", 0) or 0
+    )
+    cached_tokens = int(getattr(usage, "cached_content_token_count", 0) or 0)
+    estimated_cost = estimate_cost_usd(
+        model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_tokens=cached_tokens,
+    )
+    atomic_write_text(
+        sess_dir / "transcript.txt",
+        response.text or proposal.model_dump_json(indent=2),
+    )
+    atomic_write_json(
+        sess_dir / "session.json",
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": "gemini",
+            "iteration": iteration,
+            "model": str(response.model_version or model),
+            "session_id": str(response.response_id or ""),
+            "exit_code": 0,
+            "duration_seconds": round(duration, 6),
+            "token_usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cached_tokens": cached_tokens,
+            },
+            "token_usage_measurement_status": "measured",
+            "estimated_cost_usd": estimated_cost[0] if estimated_cost else None,
+            "estimated_cost_measurement_status": (
+                "measured" if estimated_cost else "unknown"
+            ),
+            "estimated_cost_source": estimated_cost[1] if estimated_cost else None,
+            "billed_cost_usd": None,
+            "billed_cost_measurement_status": "unknown",
+            "random_seed": seed,
+            "synthetic": False,
+            "evidence_access": [
+                "bounded_evolution_summary",
+                "frontier",
+                "candidate_source",
+                "bounded_raw_traces",
+            ],
+            "files_written": {
+                source_path: {"lines_written": proposal.source_code.count("\n")}
+            },
+        },
     )
     return payload
 

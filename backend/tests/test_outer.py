@@ -66,6 +66,7 @@ async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
         trials=5,
         bench_workers=1,
         budget=2,
+        random_seed=101,
     )
 
     # Loop completed both iterations.
@@ -80,6 +81,9 @@ async def test_mock_outer_loop_produces_all_files(tmp_path: Path):
     assert (run_dir / "frontier_val.json").exists()
     assert (run_dir / "evolution_summary.jsonl").exists()
     assert (run_dir / "manifest.json").exists()
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["random_seed"] == 101
+    assert manifest["policy"]["random_seed"] == 101
 
     # Frontier shape: dominated_by_names per candidate (INTERFACES.md §2.2).
     frontier = json.loads((run_dir / "frontier_val.json").read_text())

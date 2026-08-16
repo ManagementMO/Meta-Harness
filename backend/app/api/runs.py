@@ -53,6 +53,9 @@ class RunRecord:
     skill_path: str | None
     budget: int
     model: str
+    proposer_backend: str
+    inner_model: str
+    random_seed: int | None
     mode: str
     parent_policy: str
     synthetic: bool
@@ -76,7 +79,10 @@ class CreateRunRequest(BaseModel):
     global_memory: bool = False
     fresh: bool = True
     run_name: str | None = None
-    proposer: Literal["claude", "mock"] = "claude"
+    proposer: Literal["claude", "gemini", "mock"] = "claude"
+    random_seed: int | None = None
+    max_act_turns: int = Field(default=25, ge=1)
+    max_verify_retries: int = Field(default=3, ge=0)
     mock_bench: bool | None = None
     trials: int = Field(default=5, ge=1)
     workers: int = Field(default=3, ge=1)
@@ -164,6 +170,10 @@ def _build_graph(
     parent_policy: str = "best_accuracy",
     inner_model: str | None = None,
     proposer_model: str = "opus",
+    proposer_backend: str | None = None,
+    random_seed: int | None = None,
+    max_act_turns: int = 25,
+    max_verify_retries: int = 3,
     allow_global_memory: bool = False,
 ) -> Any:
     runner = OuterLoopRunner(
@@ -181,6 +191,10 @@ def _build_graph(
         parent_policy=parent_policy,
         inner_model=inner_model,
         proposer_model=proposer_model,
+        proposer_backend=proposer_backend,
+        random_seed=random_seed,
+        max_act_turns=max_act_turns,
+        max_verify_retries=max_verify_retries,
         allow_global_memory=allow_global_memory,
     )
     return runner.build()
@@ -360,6 +374,9 @@ def _run_info_from_record(record: RunRecord) -> dict[str, Any]:
         "skill_path": record.skill_path,
         "budget": record.budget,
         "model": record.model,
+        "proposer_backend": record.proposer_backend,
+        "inner_model": record.inner_model,
+        "random_seed": record.random_seed,
         "mode": record.mode,
         "parent_policy": record.parent_policy,
         "synthetic": record.synthetic,
@@ -383,6 +400,9 @@ def _run_info_from_files(run_dir: Path) -> dict[str, Any]:
         "skill_path": manifest.get("skill_path"),
         "budget": manifest.get("budget"),
         "model": manifest.get("proposer_model", manifest.get("model")),
+        "proposer_backend": manifest.get("proposer_backend", "claude"),
+        "inner_model": (manifest.get("policy") or {}).get("inner_model"),
+        "random_seed": manifest.get("random_seed"),
         "mode": manifest.get("mode", "research"),
         "parent_policy": manifest.get("parent_policy", "best_accuracy"),
         "synthetic": manifest.get("synthetic", manifest.get("mock_bench", False)),
@@ -580,6 +600,12 @@ def get_run_graph(request: Request, run_id: str) -> Any:
         parent_policy=manifest.get("parent_policy", "best_accuracy"),
         inner_model=(manifest.get("policy") or {}).get("inner_model"),
         proposer_model=manifest.get("proposer_model", manifest.get("model", "opus")),
+        proposer_backend=manifest.get("proposer_backend"),
+        random_seed=manifest.get("random_seed"),
+        max_act_turns=int((manifest.get("policy") or {}).get("max_act_turns", 25)),
+        max_verify_retries=int(
+            (manifest.get("policy") or {}).get("max_verify_retries", 3)
+        ),
         allow_global_memory=bool(
             (manifest.get("policy") or {}).get("allow_global_memory", False)
         ),
@@ -647,6 +673,14 @@ async def create_run(
     run_dir = runs_mod.make_run_dir(repo_root, run_id, fresh=payload.fresh)
     mock_proposer = payload.proposer == "mock"
     mock_bench = payload.mock_bench if payload.mock_bench is not None else mock_proposer
+    resolved_inner_model = payload.inner_model or (
+        "gemini-3.1-flash-lite"
+        if payload.proposer == "gemini"
+        else "claude-haiku-4-5-20251001"
+    )
+    resolved_proposer_model = payload.proposer_model or (
+        "gemini-3.6-flash" if payload.proposer == "gemini" else payload.model
+    )
     started_at = _now()
     runs_mod.write_manifest(
         run_dir,
@@ -657,9 +691,11 @@ async def create_run(
         domain=payload.domain,
         skill_path=str(skill_path) if skill_path else payload.skill_path,
         budget=payload.budget,
-        model=payload.proposer_model or payload.model,
-        proposer_model=payload.proposer_model or payload.model,
-        inner_model=payload.inner_model,
+        model=resolved_proposer_model,
+        proposer_model=resolved_proposer_model,
+        proposer_backend=payload.proposer,
+        inner_model=resolved_inner_model,
+        random_seed=payload.random_seed,
         mode=payload.mode,
         parent_policy=payload.parent_policy,
         global_memory=payload.global_memory,
@@ -688,8 +724,12 @@ async def create_run(
         ),
         mode=payload.mode,
         parent_policy=payload.parent_policy,
-        inner_model=payload.inner_model,
-        proposer_model=payload.proposer_model or payload.model,
+        inner_model=resolved_inner_model,
+        proposer_model=resolved_proposer_model,
+        proposer_backend=payload.proposer,
+        random_seed=payload.random_seed,
+        max_act_turns=payload.max_act_turns,
+        max_verify_retries=payload.max_verify_retries,
         allow_global_memory=payload.global_memory,
     )
     record = RunRecord(
@@ -700,7 +740,10 @@ async def create_run(
         domain=payload.domain,
         skill_path=str(skill_path) if skill_path else payload.skill_path,
         budget=payload.budget,
-        model=payload.proposer_model or payload.model,
+        model=resolved_proposer_model,
+        proposer_backend=payload.proposer,
+        inner_model=resolved_inner_model,
+        random_seed=payload.random_seed,
         mode=payload.mode,
         parent_policy=payload.parent_policy,
         synthetic=mock_bench,
@@ -721,6 +764,7 @@ async def create_run(
         "proposer_prior": "",
         "mode": payload.mode,
         "parent_policy": payload.parent_policy,
+        "random_seed": payload.random_seed,
     }
     record.task = asyncio.create_task(
         _execute_run(record, initial_state),

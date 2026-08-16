@@ -32,18 +32,18 @@ That ordering matters here because the repository contains useful historical doc
 
 The current working tree now implements the first architecture pass described by this brief: immutable run-scoped candidate manifests, source/runtime/dependency-lock hashes, explicit candidate IDs, baseline evaluation, population evaluation, measured/unknown/synthetic metric contracts, one evaluator for search and holdout, task runtime adapters, corrected retry feedback and structural hooks, inner checkpoint propagation, isolated holdout finalization, paired regression reports, append-only evidence events with content-addressed artifacts and torn-tail recovery, scoped/versioned memory fields, reversible refinement records, durable branch projections, research/autonomous modes, deterministic experiment bundles, repeated-run confidence summaries, and provenance/evidence surfaces in the CLI, API, and dashboard.
 
-This is an implementation claim, not a self-improvement result. Current deterministic and Postgres-backed verification passes with `125 passed, 1 skipped`; the single skip is the credential-gated live Anthropic trial. Frontend lint/build and all 9 Playwright dashboard tests pass, including a live FastAPI/SSE provenance flow. A persistent two-iteration mock CLI run produces three immutable candidates, a candidate-ID frontier, a durable lifecycle/evidence ledger, and a synthetic-labeled report; holdout finalization correctly refuses that synthetic search.
+This is primarily an implementation claim, not a successful self-improvement claim. Current deterministic and Postgres-backed verification passes with `135 passed, 1 skipped`; the single skip is the credential-gated live Anthropic trial. Frontend lint/build and all 9 Playwright dashboard tests pass, including a live FastAPI/SSE provenance flow. A persistent two-iteration mock CLI run produces three immutable candidates, a candidate-ID frontier, a durable lifecycle/evidence ledger, and a synthetic-labeled report; holdout finalization correctly refuses that synthetic search.
 
-Live provider benchmarking, a stronger security sandbox, an actual recursive/RLM backend, larger task distributions, held-out models, multiple measured seeds, and independent re-execution of exported experiment bundles still require separate validation or additional inputs. The roadmap below remains authoritative for those later gates.
+A three-seed measured Gemini pilot now validates the real provider path, but it is a negative self-improvement result: one search winner regressed on holdout and the other generated candidates were rejected or failed. A stronger security sandbox, an actual recursive/RLM backend, larger task distributions, more trials and models, held-out-model studies, full ablations, and independent re-execution of exported experiment bundles still require separate validation or additional inputs. The roadmap below remains authoritative for those later gates.
 
 | Roadmap phase | Repository status | Remaining gate |
 |---|---|---|
-| Phase 0 — truthful claims | Implemented and deterministic-test verified | Live provider artifact validation |
-| Phase 1 — scientifically useful search | Implemented for the frozen small task set | Measured policy/population ablations |
+| Phase 0 — truthful claims | Implemented; deterministic, Postgres, and measured-provider artifacts verified | Independent external artifact reproduction |
+| Phase 1 — scientifically useful search | Implemented and exercised by a three-seed small-task pilot | More trials plus measured policy/population ablations |
 | Phase 2 — evidence and memory | Implemented for local/Postgres operation | Semantic retrieval and empirical memory ablations |
 | Phase 3 — durable execution | Implemented for restartable single-process ownership and durable branch/run projections | Distributed admission leases, dead-worker reconciliation, and automated retention cleanup |
 | Phase 4 — optional RLM backend | Interface, fixed backend, recursion-disable policy, and budget schema only | Actual typed host bridge, recursive backend, persistent children, and fair RLM ablation |
-| Phase 5 — broader generalization | Runtime adapters, concurrency, anti-leak audit, bundles, and confidence-summary tooling implemented | More task families/models, measured seeds, held-out-model studies, and independent reruns |
+| Phase 5 — broader generalization | Runtime adapters, concurrency, anti-leak audit, bundles, and one measured three-seed pilot implemented | More task families/models/trials, held-out-model studies, and independent reruns |
 
 This table is the completion boundary. “Repository implementation complete” refers to the implemented cells; it does not mean the remaining external or optional research gates have already produced results.
 
@@ -66,6 +66,7 @@ This table is the completion boundary. “Repository implementation complete” 
 - [Open product and research decisions](#12-product-and-research-decisions-still-open)
 - [Suggested success criteria](#14-suggested-success-criteria-for-a-finalized-meta-harness)
 - [Source index and local evidence map](#15-source-index-and-local-evidence-map)
+- [Future initiatives](#16-future-initiatives-after-the-measured-provider-milestone)
 
 ## Executive conclusion
 
@@ -177,10 +178,11 @@ That conceptual model is sound. The key work is making each arrow a real, typed,
 | Public SDK | [`sdk/meta_harness/`](../sdk/meta_harness/) | `wrap_graph`, tracing, run metadata | Thin but appropriately separated from backend internals |
 | Outer loop | [`backend/app/meta_harness/outer.py`](../backend/app/meta_harness/outer.py) | Baseline, propose, validate, benchmark populations, update frontier | Candidate-ID and immutable-artifact path implemented; live search-policy ablations remain |
 | Inner harness | [`backend/app/meta_harness/inner.py`](../backend/app/meta_harness/inner.py) | Orient, plan, act, verify, submit | Runtime adapters, telemetry, retry feedback, structural hook, and checkpoint propagation implemented |
-| Harness base class | [`backend/app/meta_harness/harness.py`](../backend/app/meta_harness/harness.py) | Prompt and tool override points | Good experimental seam; context and model defaults need explicit contracts |
+| Harness base class | [`backend/app/meta_harness/harness.py`](../backend/app/meta_harness/harness.py) | Prompt and tool override points | Provider-neutral call boundary, fixed-model enforcement, and measured telemetry implemented |
+| Model providers | [`backend/app/meta_harness/providers.py`](../backend/app/meta_harness/providers.py) | Anthropic/Google request normalization, function history, quotas, and pricing | Gemini 3.7/3.5 Flash support added; billed cost remains unknown unless returned by provider |
 | Tools | [`backend/app/meta_harness/tools.py`](../backend/app/meta_harness/tools.py) | Read, search, patch, shell, file operations | Patch validation is a good start; shell and file provenance require stronger task-scoped policy |
 | Sandbox | [`backend/app/meta_harness/sandbox.py`](../backend/app/meta_harness/sandbox.py) | Copy workspace and apply process limits | Process isolation only; not a security sandbox; shared by tool execution and verification |
-| Proposer | [`backend/app/meta_harness/proposer.py`](../backend/app/meta_harness/proposer.py) | Mock or Claude CLI proposer | Writes run-scoped proposals that are materialized immutably; trusted-local broad permissions and access auditing remain |
+| Proposer | [`backend/app/meta_harness/proposer.py`](../backend/app/meta_harness/proposer.py) | Mock, Claude CLI, or structured Gemini API proposer | Gemini receives bounded search-only evidence; Claude remains a trusted-local broad-permission profile |
 | Persistence | [`backend/app/meta_harness/persistence.py`](../backend/app/meta_harness/persistence.py) | Postgres checkpoint/store setup | Valuable path, but fallback and deployment mode must be explicit |
 | Memory | [`backend/app/meta_harness/memory.py`](../backend/app/meta_harness/memory.py) | Scoped learned patterns in Postgres store | Version, scope, confidence, candidate evidence, and evidence-ranked retrieval implemented; live ablation remains |
 | Branches | [`backend/app/meta_harness/branches.py`](../backend/app/meta_harness/branches.py) | Fork a checkpoint into an isolated execution directory | Active tasks remain process-owned; metadata, lineage, lifecycle, and terminal state are durably projected |
@@ -1199,6 +1201,84 @@ Every report should state:
 
 A result that omits these fields may still be a useful demo, but it should not be labeled a reproducible research result.
 
+### 10.4 Priority 1 measured Gemini protocol
+
+The first measured-provider program uses one frozen protocol across three final
+seeds. Preliminary engineering runs are retained but excluded from confidence
+statistics whenever their runtime hash or proposer model differs.
+
+| Field | Frozen value |
+|---|---|
+| Proposer backend/model | Structured Google GenAI proposer / `gemini-3.6-flash` |
+| Inner provider/model | Google GenAI / `gemini-3.1-flash-lite` |
+| Google SDK | `google-genai==2.17.0` |
+| Search tasks | Five frozen Python tasks |
+| Holdout tasks | Two protected Python tasks |
+| Search budget | One generated candidate after the explicit baseline |
+| Trials | One trial per candidate/task/seed |
+| Seeds | 101, 202, 303 |
+| Parent policy | `best_accuracy` |
+| Workers | Three, with a process-wide quota-aware request scheduler |
+| Evaluator turn budget | Maximum 10 act turns and 3 verification attempts per task |
+| Research controls | No global memory, no recursive children, fixed inner model, bounded proposer evidence, no holdout feedback |
+| Cost | Versioned list-price estimate; billed cost remains `unknown` |
+| Statistical target | Holdout accuracy mean/sample standard deviation/95% interval across the selected candidate from each seed |
+
+The low trial count is intentional for the free-tier quota and must be reported as
+a limitation. Seed repetition measures run-level stochasticity but does not replace
+more within-task trials. Final results and bundle hashes are recorded below only
+after all three runs finish with identical policy, runtime, dependency, and task
+hashes.
+
+#### Measured result
+
+All three included runs completed search and isolated holdout finalization with
+policy `policy_5d190a09e0663422`, runtime
+`466e117dea73e068f09f36141916d7a8f35e43ddd952730033d2d444e356767a`,
+dependency lock
+`89628469a9e5095792df9e69969aa99f2f1368487999e94d1279a14645fa225b`,
+and the same frozen task hashes.
+
+| Seed | Proposed candidate | Search baseline → candidate | Search selection | Holdout baseline → selected | Interpretation |
+|---:|---|---:|---|---:|---|
+| 101 | `test_guided_exploration` | 0.60 → aborted candidate execution | Baseline | 0.50 → 0.50 | Candidate raised `KeyError('orient_summary')` on all search tasks and was dominated |
+| 202 | `verification_guided_harness` | 0.60 → 0.80 | Candidate | 1.00 → 0.50 | Search winner regressed `task-007-implement-stack`; holdout firewall exposed overfitting |
+| 303 | `truncation_aware_harness` | 0.60 → 0.40 | Baseline | 1.00 → 1.00 | Candidate was dominated on search and excluded from holdout |
+
+Selected-candidate holdout accuracies were `[0.5, 0.5, 1.0]`: mean
+`0.6667`, sample standard deviation `0.2887`, and normal-approximation 95%
+confidence interval `[0.34, 0.9933]`. Baseline holdout accuracies were
+`[0.5, 1.0, 1.0]`, so search selection did not improve aggregate holdout
+performance and reduced it in seed 202. This is a **negative self-improvement
+result**. It is positive validation of the provider integration, evidence
+contracts, search/holdout firewall, regression reporting, and repeated-run
+comparison.
+
+Across search and holdout, the three included runs consumed approximately
+`1,441,681` measured tokens and `$0.53960828` in versioned list-price estimate.
+Billed cost remains `unknown` because the Gemini API did not return account
+billing. Search-only totals were `$0.10627799`, `$0.16722020`, and
+`$0.18015762` for seeds 101, 202, and 303 respectively. No result was
+synthetic and no human intervention changed a candidate or score.
+
+| Seed | Verified raw bundle | SHA-256 | Bytes |
+|---:|---|---|---:|
+| 101 | `/tmp/gemini-p1-study-seed-101.zip` | `9528eadf5740cbc655ecd97b7381977481fffbeae9fed448a9643abeb8c5fe0c` | 581625 |
+| 202 | `/tmp/gemini-p1-study-seed-202.zip` | `62f0ec845f996bf7fe79252248b6952da572ceb90711cd745b5c53c195c4fa34` | 871065 |
+| 303 | `/tmp/gemini-p1-study-seed-303.zip` | `84e27f583c16c901ca1d415f4ac0e3c85edc411a8532054b48562abea6b4af58` | 781469 |
+
+Preliminary engineering runs using `gemini-3.7-flash` and
+`gemini-3.5-flash-lite` are retained but excluded: they used earlier runtime
+hashes or encountered the free-tier daily quotas (20 and 500 requests
+respectively). The final protocol moved to untouched `gemini-3.6-flash` and
+`gemini-3.1-flash-lite` quota pools before freezing the comparable set.
+
+Limitations are material: three seeds, one trial per task, five search tasks,
+two holdout tasks, a ten-turn cap, list-price rather than billed cost, and no
+independent machine reproduction yet. The confidence interval is descriptive,
+not evidence of broad generalization. Priority 2 should expand tasks and trials
+before any stronger performance claim.
+
 ## 11. Agent-facing implementation contract
 
 Future coding agents working on this repository should follow these rules.
@@ -1365,6 +1445,7 @@ A reasonable definition of a mature next milestone is:
 - [Tool implementations](../backend/app/meta_harness/tools.py)
 - [Sandbox](../backend/app/meta_harness/sandbox.py)
 - [Proposer](../backend/app/meta_harness/proposer.py)
+- [Model providers](../backend/app/meta_harness/providers.py)
 - [Run helpers](../backend/app/meta_harness/runs.py)
 - [Frontier](../backend/app/meta_harness/frontier.py)
 - [Memory](../backend/app/meta_harness/memory.py)
@@ -1401,6 +1482,76 @@ A reasonable definition of a mature next milestone is:
 - [Voyager implementation](https://github.com/MineDojo/Voyager)
 - [SWE-agent paper](https://arxiv.org/abs/2405.15793)
 - [SWE-agent ACI documentation](https://github.com/SWE-agent/SWE-agent/blob/main/docs/background/aci.md)
+
+## 16. Future initiatives after the measured-provider milestone
+
+This is the ordered backlog after Priority 1. Each initiative has an entry gate
+and an exit gate so future work cannot be declared complete from code alone.
+
+| Priority | Initiative | Entry gate | Exit gate |
+|---|---|---|---|
+| 2 | Broaden frozen task distributions | Priority 1 reports and failure taxonomy exist | Multiple task families have independent search/holdout sets and enough examples to detect overfitting |
+| 3 | Execute mechanism ablations | Comparable measured runs and seed controls exist | Each required ablation has a versioned protocol, repeated seeds, confidence interval, and regression report |
+| 4 | Strong security sandbox | Trusted-local capability inventory is complete | Network, filesystem, environment, credentials, processes, disk, and wall time are OS-enforced and adversarially tested |
+| 5 | API authentication and resource controls | A remote deployment is proposed | AuthN/AuthZ, rate limits, quotas, artifact policy, audit identity, and tenant isolation pass integration tests |
+| 6 | Distributed worker ownership | Single-process recovery is stable under kill tests | Database leases, heartbeats, idempotent claims, expiration, retry ownership, and dead-worker reconciliation pass multi-worker tests |
+| 7 | Genuine recursive/RLM backend | Fixed-graph measured baseline is reproducible | Typed host bridge, persistent children, budgets, attribution, cancellation, recovery, and fair fixed-vs-RLM ablation all pass |
+| 8 | Semantic and calibrated memory | Evidence-ranked memory has measured usefulness data | Hybrid retrieval, contradiction/supersession, negative evidence, confidence calibration, and memory-off/on ablations pass |
+| 9 | Versioned skill registry and curriculum | Several accepted refinements recur across task families | Skills have interfaces, evidence, tests, versions, retrieval metadata, rollback, and a holdout-safe curriculum |
+| 10 | Independent bundle reproduction | A measured raw bundle is exported | A clean external machine verifies hashes, recreates dependencies, reruns evaluation, and explains stochastic differences |
+| 11 | Automated artifact retention | Finalized bundles and legal retention requirements are defined | Pinning, reference-safe garbage collection, dry runs, archive tiers, and cleanup ledger events are operationally tested |
+
+### 16.1 Priority 2 — broader tasks and held-out models
+
+Add multi-file fixes, repository navigation, feature work, dependency failures,
+JavaScript/TypeScript, a compiled language, and longer-horizon tasks. Each family
+needs separate search and holdout examples. Run the accepted harness against at
+least one inner model that was not used during search. Do not treat additional
+variants of the same tiny fixture as distributional breadth.
+
+### 16.2 Priority 3 — required ablation execution
+
+Run score-only versus raw-trace feedback, raw traces versus indexed traces,
+best-parent versus Pareto sampling, single candidates versus populations,
+memory off versus evidence-ranked memory, prompt/skill/control-flow-only
+changes, compression strategies, environment bootstrap, search versus holdout,
+and one-model versus held-out-model transfer. Freeze manifests and seeds before
+running; report null or inconclusive outcomes as such.
+
+### 16.3 Priorities 4–6 — production trust and distributed durability
+
+Before accepting untrusted or remote work, introduce a container or VM boundary,
+deny network by default, mount only the task workspace, broker credentials,
+allowlist environment and commands, and enforce CPU/memory/process/disk/time
+quotas. A network service additionally requires authentication, project/run
+authorization, rate limits, budget admission, request limits, and artifact access
+policy. Multi-worker execution requires transactional leases and reconciliation;
+process-local `asyncio.Task` ownership must never become distributed truth.
+
+### 16.4 Priority 7 — optional RLM execution
+
+Implement recursion only through the existing execution-backend boundary. The
+runtime—not model-generated code—must own provider calls, child IDs, messages,
+artifacts, budgets, cancellation, and recovery. Bound depth, child count, tokens,
+estimated/billed cost, wall time, and concurrency. Keep recursion disabled in the
+paper-faithful mode and compare it against the fixed graph with the same tasks,
+seeds, evaluator, and evidence schema.
+
+### 16.5 Priorities 8–9 — memory, skills, and curriculum
+
+Measure whether semantic or hybrid retrieval improves outcomes before making it
+default. Add contradiction handling, supersession, negative evidence, expiry,
+and calibrated confidence. Promote recurring evidence-backed mechanisms into a
+versioned skill registry with executable tests and rollback. Curriculum-selected
+tasks may expose missing mechanisms but must remain outside all final holdouts.
+
+### 16.6 Priorities 10–11 — independent reproduction and retention
+
+Export measured bundles with raw evidence, runtime source, dependency locks, task
+workspaces, and manifests. Re-run them on clean infrastructure and publish the
+verification result. Once bundles are independently reproducible, add explicit
+retention periods, artifact pinning, reference counting, archive tiers, dry-run
+garbage collection, cleanup events, and protections for finalized studies.
 
 ## Final recommendation
 

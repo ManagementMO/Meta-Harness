@@ -20,6 +20,7 @@ class MetaHarnessState(TypedDict):
     parent_policy: NotRequired[str]
     mode: NotRequired[str]
     evaluation_policy: NotRequired[dict[str, Any]]
+    random_seed: NotRequired[int | None]
 
 
 class CodingAgentState(TypedDict):

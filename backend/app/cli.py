@@ -97,21 +97,36 @@ def _policy(
     inner_model: str | None,
     synthetic: bool,
     allow_global_memory: bool,
+    random_seed: int | None = None,
 ):
+    from app.meta_harness.artifacts import canonical_json_bytes, sha256_bytes
     from app.meta_harness.contracts import EvaluationPolicy, RunMode
     from app.meta_harness.harness import CodingAgentHarness
+    from app.meta_harness.providers import provider_for_model
 
+    model = inner_model or CodingAgentHarness.MODEL
+    provider = provider_for_model(model)
+    policy_identity = {
+        "mode": mode,
+        "visibility": visibility,
+        "trials": trials,
+        "workers": workers,
+        "inner_model": model,
+        "model_provider": provider,
+        "synthetic": synthetic,
+        "allow_global_memory": allow_global_memory,
+    }
     return EvaluationPolicy(
-        policy_id=(
-            f"cli-{visibility}-{'synthetic' if synthetic else 'measured'}-v1"
-        ),
+        policy_id="cli_" + sha256_bytes(canonical_json_bytes(policy_identity))[:16],
         mode=RunMode(mode),
         task_visibility=visibility,
         runtime_adapter="task-declared",
-        inner_model=inner_model or CodingAgentHarness.MODEL,
+        inner_model=model,
+        model_provider=provider,
         trials=trials,
         workers=workers,
         allow_global_memory=allow_global_memory,
+        random_seed=random_seed,
         synthetic=synthetic,
     )
 
@@ -144,6 +159,7 @@ def _write_cli_manifest(
             else None
         ),
         policy=policy,
+        random_seed=policy.random_seed,
         search_task_ids=task_ids if policy.task_visibility == "search" else [],
         holdout_visible=policy.task_visibility == "holdout",
         persistence_backend="memory",
@@ -288,6 +304,7 @@ def inner(
     run_name: str = typer.Option("inner-test", "--run-name"),
     holdout: bool = typer.Option(False, "--holdout"),
     inner_model: str | None = typer.Option(None, "--inner-model"),
+    seed: int | None = typer.Option(None, "--seed"),
 ) -> None:
     from app.meta_harness.evaluator import Evaluator
     from app.meta_harness.runs import make_run_dir
@@ -309,6 +326,7 @@ def inner(
         inner_model=inner_model,
         synthetic=False,
         allow_global_memory=False,
+        random_seed=seed,
     )
     _write_cli_manifest(
         run_dir=run_dir,
@@ -385,6 +403,7 @@ def benchmark(
     run_name: str | None = typer.Option(None, "--run-name"),
     holdout: bool = typer.Option(False, "--holdout"),
     inner_model: str | None = typer.Option(None, "--inner-model"),
+    seed: int | None = typer.Option(None, "--seed"),
 ) -> None:
     import datetime
 
@@ -410,6 +429,7 @@ def benchmark(
         inner_model=inner_model,
         synthetic=False,
         allow_global_memory=False,
+        random_seed=seed,
     )
     _write_cli_manifest(
         run_dir=run_dir,
@@ -479,7 +499,10 @@ def loop(
     mode: str = typer.Option("research", "--mode"),
     parent_policy: str = typer.Option("best_accuracy", "--parent-policy"),
     inner_model: str | None = typer.Option(None, "--inner-model"),
-    proposer_model: str = typer.Option("opus", "--proposer-model"),
+    proposer_model: str | None = typer.Option(None, "--proposer-model"),
+    seed: int | None = typer.Option(None, "--seed"),
+    max_act_turns: int = typer.Option(25, "--max-act-turns", min=1),
+    max_verify_retries: int = typer.Option(3, "--max-verify-retries", min=0),
     global_memory: bool = typer.Option(
         False,
         "--global-memory/--no-global-memory",
@@ -494,8 +517,14 @@ def loop(
     from app.meta_harness.reports import finalize_run
     from app.meta_harness.runs import make_run_dir
 
-    if proposer not in {"claude", "mock"}:
-        raise typer.BadParameter("proposer must be 'claude' or 'mock'")
+    if proposer not in {"claude", "gemini", "mock"}:
+        raise typer.BadParameter("proposer must be 'claude', 'gemini', or 'mock'")
+    resolved_inner_model = inner_model or (
+        "gemini-3.1-flash-lite" if proposer == "gemini" else None
+    )
+    resolved_proposer_model = proposer_model or (
+        "gemini-3.6-flash" if proposer == "gemini" else "opus"
+    )
     try:
         resolved_mode = RunMode(mode)
     except ValueError as exc:
@@ -507,7 +536,7 @@ def loop(
     ).strftime("%Y%m%dT%H%M%SZ")
     run_dir = make_run_dir(REPO_ROOT, run_name, fresh=fresh)
     skill_path: Path | None = None
-    if proposer == "claude":
+    if proposer in {"claude", "gemini"}:
         if skill and skill_dir:
             raise typer.BadParameter("use only one of --skill or --skill-dir")
         if skill_dir:
@@ -542,8 +571,12 @@ def loop(
                 memory_store=memory_store,
                 mode=resolved_mode,
                 parent_policy=parent_policy,
-                inner_model=inner_model,
-                proposer_model=proposer_model,
+                inner_model=resolved_inner_model,
+                proposer_model=resolved_proposer_model,
+                proposer_backend=proposer,
+                random_seed=seed,
+                max_act_turns=max_act_turns,
+                max_verify_retries=max_verify_retries,
                 allow_global_memory=global_memory,
             )
 
@@ -585,6 +618,12 @@ def loop(
                 "frontier_ids": final_state.get("frontier"),
                 "persistent": persistent,
                 "mode": resolved_mode.value,
+                "proposer_backend": proposer,
+                "proposer_model": resolved_proposer_model,
+                "inner_model": resolved_inner_model,
+                "random_seed": seed,
+                "max_act_turns": max_act_turns,
+                "max_verify_retries": max_verify_retries,
                 "synthetic": mock_bench,
                 "holdout": holdout_result,
             },

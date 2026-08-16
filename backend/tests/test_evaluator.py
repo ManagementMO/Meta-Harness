@@ -14,7 +14,12 @@ from app.meta_harness.contracts import (
     Provenance,
     TaskSpec,
 )
-from app.meta_harness.evaluator import EvaluationInfrastructureError, Evaluator
+from app.meta_harness.evaluator import (
+    EvaluationInfrastructureError,
+    Evaluator,
+    _instantiate_harness,
+)
+from app.meta_harness.harness import CodingAgentHarness
 
 
 def _source(repo_root: Path) -> Path:
@@ -79,6 +84,27 @@ def _artifact(
             authorization_profile="trusted-local-research",
         ),
     )
+
+
+def test_evaluator_enforces_policy_turn_budgets() -> None:
+    class HighBudgetHarness(CodingAgentHarness):
+        MAX_ACT_TURNS = 100
+        MAX_VERIFY_RETRIES = 10
+
+        def __init__(self) -> None:
+            pass
+
+    policy = EvaluationPolicy(
+        policy_id="policy",
+        inner_model="fixed-model",
+        runtime_adapter="generic-command-v1",
+        max_act_turns=15,
+        max_verify_retries=2,
+    )
+    harness = _instantiate_harness(HighBudgetHarness, policy, seed=101)
+    assert harness.MAX_ACT_TURNS == 15
+    assert harness.MAX_VERIFY_RETRIES == 2
+    assert harness.SEED == 101
 
 
 async def test_real_evaluator_records_usage_and_unknown_cost(tmp_path: Path) -> None:

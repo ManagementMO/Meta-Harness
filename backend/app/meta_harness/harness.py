@@ -17,7 +17,7 @@ import os
 import time
 from typing import Any
 
-import anthropic
+from app.meta_harness.providers import get_model_provider, provider_for_model
 
 
 _DEFAULT_SYSTEM_PROMPT = """\
@@ -169,28 +169,28 @@ class CodingAgentHarness:
     # Override 4 — verify→act retry budget
     MAX_VERIFY_RETRIES: int = 3
 
-    # Model knobs (not strict override points but candidates may tune).
-    # Default = Haiku 4.5: rate-limit-friendly for parallel benchmarks,
-    # ~10× cheaper than Sonnet, capable enough for the 5 calibration
-    # tasks. Override with ``META_HARNESS_INNER_MODEL`` for Sonnet/Opus.
     MODEL: str = os.environ.get(
         "META_HARNESS_INNER_MODEL", "claude-haiku-4-5-20251001"
     )
+    PROVIDER: str | None = os.environ.get("META_HARNESS_MODEL_PROVIDER")
     MAX_TOKENS: int = 4096
+    TEMPERATURE: float | None = 0.2
 
-    def __init__(self, *, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        seed: int | None = None,
+    ) -> None:
         self.telemetry = HarnessTelemetry()
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY is not set. Add it to .env or export it "
-                "before running the inner loop."
-            )
-        # Async client — required for use inside LangGraph async nodes
-        # (see Appendix A §A.4 Gotcha 1: sync I/O inside async nodes
-        # blocks the event loop). All node bodies in inner.py and
-        # outer.py are async; ``_call_llm`` is awaited.
-        self._client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        self.MODEL = model or self.MODEL
+        self.PROVIDER = provider or self.PROVIDER or provider_for_model(self.MODEL)
+        self.SEED = seed
+        self.api_key = api_key
+        self._provider = get_model_provider(self.PROVIDER, api_key=api_key)
+        self._client = self._provider.client
 
     def _telemetry(self) -> HarnessTelemetry:
         telemetry = getattr(self, "telemetry", None)
@@ -258,7 +258,7 @@ class CodingAgentHarness:
             f"{json.dumps(plan, indent=2)}"
         )
 
-    # Override 8 — the actual API call (now async; see Appendix A §A.4)
+    # Override 8 — the provider API call
     async def _call_llm(
         self,
         messages: list[dict[str, Any]],
@@ -266,17 +266,18 @@ class CodingAgentHarness:
         *,
         tool_choice: dict[str, Any] | None = None,
     ) -> Any:
-        """The Anthropic API call. Override for caching, ordering, etc."""
-        kwargs: dict[str, Any] = {}
-        if tool_choice is not None:
-            kwargs["tool_choice"] = tool_choice
-        return await self._client.messages.create(
+        """Call the configured provider. Override for caching or ordering."""
+        call_index = len(self._telemetry().model_calls)
+        call_seed = self.SEED + call_index if self.SEED is not None else None
+        return await self._provider.call(
+            messages,
+            tools,
             model=self.MODEL,
             max_tokens=self.MAX_TOKENS,
-            messages=messages,
-            tools=tools,
-            system=self.SYSTEM_PROMPT,
-            **kwargs,
+            system_prompt=self.SYSTEM_PROMPT,
+            tool_choice=tool_choice,
+            temperature=self.TEMPERATURE,
+            seed=call_seed,
         )
 
     # Override 9 — control whether to retry act after verify failure

@@ -601,7 +601,7 @@ noted. Status codes are conventional (200 OK, 201 Created, 202 Accepted,
 
 | Method | Path | Request | Response | Status |
 |---|---|---|---|---|
-| `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "model": "opus", "fresh": true, "run_name": "demo-2026-04-25", "proposer": "claude", "mock_bench": false, "trials": 5, "workers": 3}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "current_iteration": 0}` | **201** |
+| `POST` | `/runs` | `{"domain": "coding-agent", "skill_path": "<optional>", "budget": 5, "fresh": true, "run_name": "measured-run", "proposer": "gemini", "proposer_model": "gemini-3.6-flash", "inner_model": "gemini-3.1-flash-lite", "random_seed": 101, "max_act_turns": 10, "mock_bench": false, "trials": 1, "workers": 3}` | **201 Created** with header `Location: /runs/{run_id}`. Body: full Run object: `{"run_id", "thread_id", "status", "started_at", "domain", "skill_path", "budget", "model", "proposer_backend", "inner_model", "random_seed", "current_iteration": 0}` | **201** |
 | `GET`  | `/runs` | — | `{"runs": [{"run_id", "thread_id", "status", "started_at", "current_iteration", "best_score"}]}` | 200 |
 | `GET`  | `/runs/{run_id}` | — | full `RunInfo` (run dir manifest + frontier_val + last few summary rows) | 200 |
 | `GET`  | `/runs/{run_id}/candidates/{candidate_identifier}/diff` | — | `{"candidate", "parent", "from_path", "to_path", "diff"}` where `diff` is unified diff text between parent and candidate source | 200 |

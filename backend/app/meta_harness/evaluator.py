@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 import uuid
@@ -34,6 +35,7 @@ from app.meta_harness.contracts import (
 )
 from app.meta_harness.execution import ChildBudget, get_execution_backend
 from app.meta_harness.ledger import append_event
+from app.meta_harness.providers import estimate_cost_usd
 from app.meta_harness.sandbox import sandbox_for
 
 EVALUATOR_VERSION = "candidate-evaluator-v1"
@@ -83,6 +85,55 @@ def _aggregate_metric(
     if all(value.status == MeasurementStatus.SYNTHETIC for value in values):
         return MetricValue.synthetic(sum(measured), unit=unit, source=source)
     return MetricValue.measured(sum(measured), unit=unit, source=source)
+
+
+def _attempt_seed(
+    policy: EvaluationPolicy,
+    *,
+    candidate_id: str,
+    task_id: str,
+    trial_index: int,
+) -> int | None:
+    if policy.random_seed is None:
+        return None
+    material = f"{candidate_id}:{task_id}:{trial_index}".encode()
+    offset = int(sha256_bytes(material)[:8], 16)
+    return (policy.random_seed + offset) % (2**31 - 1)
+
+
+def _instantiate_harness(
+    candidate_class: type[CodingAgentHarness],
+    policy: EvaluationPolicy,
+    *,
+    seed: int | None,
+) -> CodingAgentHarness:
+    signature = inspect.signature(candidate_class)
+    accepts_kwargs = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+    supported = {
+        name
+        for name in ("provider", "model", "seed")
+        if name in signature.parameters or accepts_kwargs
+    }
+    kwargs = {
+        "provider": policy.model_provider,
+        "model": policy.inner_model,
+        "seed": seed,
+    }
+    harness = candidate_class(
+        **{key: value for key, value in kwargs.items() if key in supported}
+    )
+    harness.MODEL = policy.inner_model
+    harness.PROVIDER = policy.model_provider
+    harness.SEED = seed
+    harness.MAX_ACT_TURNS = min(harness.MAX_ACT_TURNS, policy.max_act_turns)
+    harness.MAX_VERIFY_RETRIES = min(
+        harness.MAX_VERIFY_RETRIES,
+        policy.max_verify_retries,
+    )
+    return harness
 
 
 def _candidate_manifest_sha256(run_dir: Path, candidate_id: str) -> str:
@@ -150,6 +201,7 @@ def _usage_from_state(
     state: dict[str, Any],
     *,
     wall_seconds: float,
+    model: str,
 ) -> UsageMetrics:
     telemetry = state.get("telemetry") or {}
     usage_available = bool(telemetry.get("usage_available", False))
@@ -157,6 +209,12 @@ def _usage_from_state(
     input_tokens = telemetry.get("input_tokens") if usage_available else None
     output_tokens = telemetry.get("output_tokens") if usage_available else None
     cached_tokens = telemetry.get("cached_tokens") if usage_available else None
+    estimated_cost = estimate_cost_usd(
+        model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_tokens=cached_tokens,
+    )
     verify_attempts = int(state.get("verify_attempts", 0) or 0)
     return UsageMetrics(
         input_tokens=_metric_from_optional(
@@ -174,9 +232,17 @@ def _usage_from_state(
             unit="tokens",
             source=source,
         ),
-        estimated_cost_usd=MetricValue.unknown(
-            unit="usd",
-            source="provider-pricing-unavailable",
+        estimated_cost_usd=(
+            MetricValue.measured(
+                estimated_cost[0],
+                unit="usd",
+                source=estimated_cost[1],
+            )
+            if estimated_cost is not None
+            else MetricValue.unknown(
+                unit="usd",
+                source="provider-pricing-unavailable",
+            )
         ),
         billed_cost_usd=MetricValue.unknown(
             unit="usd",
@@ -301,10 +367,19 @@ class Evaluator:
         failure_category: FailureCategory | None = FailureCategory.UNKNOWN
         error: dict[str, str] | None = None
         observed_models: set[str] = set()
+        attempt_seed = _attempt_seed(
+            self.policy,
+            candidate_id=candidate.candidate_id,
+            task_id=task.id,
+            trial_index=trial_index,
+        )
         harness = None
         try:
-            harness = candidate_class()
-            harness.MODEL = self.policy.inner_model
+            harness = _instantiate_harness(
+                candidate_class,
+                self.policy,
+                seed=attempt_seed,
+            )
             with sandbox_for(Path(task.source_path) / "workspace") as workspace:
                 before = _workspace_files(workspace)
                 state = await self.backend.execute(
@@ -354,8 +429,9 @@ class Evaluator:
             if isinstance(exc, EvaluationPolicyError):
                 failure_category = FailureCategory.POLICY
             elif (
-                exc.__class__.__module__.startswith("anthropic")
+                exc.__class__.__module__.startswith(("anthropic", "google.genai"))
                 or "ANTHROPIC_API_KEY" in message
+                or "GOOGLE_API_KEY" in message
             ):
                 failure_category = FailureCategory.MODEL
             elif exc.__class__.__module__.startswith("app.meta_harness"):
@@ -366,7 +442,11 @@ class Evaluator:
         wall_seconds = time.monotonic() - started_clock
         if harness is not None and "telemetry" not in state:
             state["telemetry"] = harness._telemetry().snapshot()
-        usage = _usage_from_state(state, wall_seconds=wall_seconds)
+        usage = _usage_from_state(
+            state,
+            wall_seconds=wall_seconds,
+            model=self.policy.inner_model,
+        )
         refs = _trace_artifacts(self.run_dir, trace_dir)
         test_summary = {
             "status": "measured" if error is None else "unknown",
@@ -405,6 +485,7 @@ class Evaluator:
             sandbox_profile=self.policy.sandbox_profile,
             runtime_adapter=task.runtime_adapter,
             execution_backend=self.policy.execution_backend,
+            random_seed=attempt_seed,
             synthetic=False,
             started_at=started_at,
             finished_at=_now(),
@@ -598,9 +679,10 @@ class Evaluator:
                 unit="tokens",
                 source="task-result-sum",
             ),
-            estimated_cost_usd=MetricValue.unknown(
+            estimated_cost_usd=_aggregate_metric(
+                [result.usage.estimated_cost_usd for result in task_results],
                 unit="usd",
-                source="provider-pricing-unavailable",
+                source="task-result-sum",
             ),
             billed_cost_usd=MetricValue.unknown(
                 unit="usd",
@@ -644,6 +726,7 @@ class Evaluator:
             sandbox_profile=self.policy.sandbox_profile,
             runtime_adapter=self.policy.runtime_adapter,
             execution_backend=self.policy.execution_backend,
+            random_seed=self.policy.random_seed,
             task_hashes={task.id: task.sha256 for task in tasks},
             n_tasks=len(tasks),
             n_trials_per_task=self.policy.trials,
@@ -771,6 +854,12 @@ class Evaluator:
                         sandbox_profile=self.policy.sandbox_profile,
                         runtime_adapter=task.runtime_adapter,
                         execution_backend=self.policy.execution_backend,
+                        random_seed=_attempt_seed(
+                            self.policy,
+                            candidate_id=candidate.candidate_id,
+                            task_id=task.id,
+                            trial_index=index,
+                        ),
                         synthetic=True,
                         started_at=started_at,
                         finished_at=started_at,
@@ -846,6 +935,7 @@ class Evaluator:
             sandbox_profile=self.policy.sandbox_profile,
             runtime_adapter=self.policy.runtime_adapter,
             execution_backend=self.policy.execution_backend,
+            random_seed=self.policy.random_seed,
             task_hashes={task.id: task.sha256 for task in tasks},
             n_tasks=len(tasks),
             n_trials_per_task=self.policy.trials,

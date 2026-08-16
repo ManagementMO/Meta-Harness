@@ -5,6 +5,14 @@
 
 Meta-Harness is a LangGraph-native research substrate for evolving coding-agent harnesses. Current source supersedes the historical step counts below and implements immutable candidate IDs/manifests, baseline and population evaluation, truthful measured/unknown/synthetic metrics, shared search/holdout evaluation, runtime adapters, append-only evidence, scoped memory, reversible refinements, durable branch projections, research/autonomous modes, and provenance surfaces. It is still a trusted-local research/demo system, not a validated self-improving or security-isolated platform. Use `META_HARNESS_DEEP_RESEARCH_BRIEF.md` and current tests as the status authority.
 
+A frozen three-seed Gemini pilot used `gemini-3.6-flash` proposals and
+`gemini-3.1-flash-lite` task execution. Selected holdout accuracy was
+`[0.5, 0.5, 1.0]` (mean `0.6667`, 95% interval `[0.34, 0.9933]`). One search
+winner regressed a protected holdout task, so this is a negative
+self-improvement result and a positive validation of the research contracts.
+The exact protocol, costs, limitations, and bundle hashes are in the deep
+research brief §10.4.
+
 ---
 
 ## Current Workspace Snapshot

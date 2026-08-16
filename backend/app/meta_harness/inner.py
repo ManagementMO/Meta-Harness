@@ -131,17 +131,21 @@ async def plan(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str
 
 
 def _serialize_block(block: Any) -> dict[str, Any]:
-    """Convert an Anthropic SDK content block into a plain dict."""
+    """Convert a provider content block into a checkpoint-safe dictionary."""
     btype = getattr(block, "type", None)
     if btype == "text":
         return {"type": "text", "text": block.text}
     if btype == "tool_use":
-        return {
+        value = {
             "type": "tool_use",
             "id": block.id,
             "name": block.name,
             "input": dict(block.input),
         }
+        thought_signature = getattr(block, "thought_signature", None)
+        if thought_signature is not None:
+            value["thought_signature"] = thought_signature
+        return value
     return {"type": str(btype), "raw": str(block)}
 
 
@@ -209,9 +213,15 @@ async def act(state: CodingAgentState, harness: CodingAgentHarness) -> dict[str,
             # to_thread so we don't block the event loop on long
             # bash commands.
             tool_started = time.monotonic()
-            result = await asyncio.to_thread(
-                execute_tool, tu.name, workspace, **dict(tu.input)
-            )
+            try:
+                result = await asyncio.to_thread(
+                    execute_tool, tu.name, workspace, **dict(tu.input)
+                )
+            except Exception as exc:
+                result = {
+                    "status": "error",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
             duration_ms = int((time.monotonic() - tool_started) * 1000)
             formatted = harness._format_tool_result(tu.name, result)
             is_error = result.get("status") == "error"

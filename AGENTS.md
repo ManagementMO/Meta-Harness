@@ -17,7 +17,7 @@ Use `uv` for all Python workflows.
 Follow existing Python style: 4-space indentation, type hints, `Path`-based filesystem code, and concise module docstrings. Use `snake_case` for modules, functions, and package directories; use `PascalCase` for classes such as `BaselineHarness`. Keep CLI and backend imports explicit. No formatter or linter config is checked in today, so match the surrounding file style closely and avoid introducing new tooling conventions inside a single change.
 
 ## Testing Guidelines
-Write tests in `backend/tests/` using `test_<feature>.py` and `test_<behavior>()` naming. Prefer deterministic unit tests first; reserve live end-to-end tests for flows that require `ANTHROPIC_API_KEY`. When changing eval, sandbox, or outer-loop behavior, add or update pytest coverage and run the narrowest relevant command before the full suite.
+Write tests in `backend/tests/` using `test_<feature>.py` and `test_<behavior>()` naming. Prefer deterministic unit tests first; reserve live end-to-end tests for flows that require `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY`. When changing eval, sandbox, or outer-loop behavior, add or update pytest coverage and run the narrowest relevant command before the full suite.
 
 ## Commit & Pull Request Guidelines
 Recent history follows step-oriented subjects like `step 6: real proposer ...`; use that format for milestone work and `fixup:` only for small follow-ups. PRs should state the affected area, reference the relevant build step or interface contract when applicable, and list the exact verification commands you ran. Include artifact paths or screenshots only when the change produces user-visible output.

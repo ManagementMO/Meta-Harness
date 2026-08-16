@@ -447,7 +447,9 @@ def load_candidate_class(
             f"{artifact.class_name} is not a CodingAgentHarness subclass"
         )
     if research_mode:
-        forbidden = {"MODEL", "call_llm"}.intersection(candidate_class.__dict__)
+        forbidden = {"MODEL", "PROVIDER", "call_llm"}.intersection(
+            candidate_class.__dict__
+        )
         if forbidden:
             names = ", ".join(sorted(forbidden))
             raise TypeError(f"research candidates cannot override: {names}")

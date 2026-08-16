@@ -209,6 +209,62 @@ async def test_verify_failure_feedback_reaches_retry_as_provider_dicts(
     )
 
 
+async def test_malformed_tool_arguments_are_returned_to_model(tmp_path: Path):
+    from app.meta_harness.harness import CodingAgentHarness  # noqa: PLC0415
+    from app.meta_harness.inner import run_inner_loop  # noqa: PLC0415
+
+    class RecoveryHarness(CodingAgentHarness):
+        def __init__(self) -> None:
+            self.act_calls = 0
+
+        async def _call_llm(self, messages, tools, *, tool_choice=None):
+            usage = SimpleNamespace(
+                input_tokens=1,
+                output_tokens=1,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if tools[0]["name"] == "submit_plan":
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="submit_plan",
+                    id="plan",
+                    input={"summary": "recover", "steps": []},
+                )
+            elif self.act_calls == 0:
+                self.act_calls += 1
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="apply_patch",
+                    id="bad-call",
+                    input={"patch": "invalid"},
+                )
+            else:
+                assert "TypeError" in str(messages[-1])
+                block = SimpleNamespace(
+                    type="tool_use",
+                    name="task_complete",
+                    id="done",
+                    input={},
+                )
+            return SimpleNamespace(content=[block], usage=usage)
+
+    final = await run_inner_loop(
+        RecoveryHarness(),
+        task_dict={
+            "id": "tool-recovery",
+            "instruction": "finish",
+            "test_command": "true",
+            "runtime_adapter": "generic-command-v1",
+        },
+        workspace=tmp_path,
+    )
+
+    assert final["score"] == 1.0
+    assert final["tool_events"][0]["is_error"] is True
+    assert "TypeError" in final["tool_events"][0]["output_summary"]
+
+
 async def test_structural_graph_override_is_invoked(tmp_path: Path):
     from app.meta_harness.harness import CodingAgentHarness  # noqa: PLC0415
     from app.meta_harness.inner import build_default_inner_graph, run_inner_loop  # noqa: PLC0415

@@ -52,6 +52,7 @@ def runtime_source_paths() -> tuple[str, ...]:
         "backend/app/meta_harness/outer.py",
         "backend/app/meta_harness/persistence.py",
         "backend/app/meta_harness/proposer.py",
+        "backend/app/meta_harness/providers.py",
         "backend/app/meta_harness/provenance.py",
         "backend/app/meta_harness/refinements.py",
         "backend/app/meta_harness/reports.py",

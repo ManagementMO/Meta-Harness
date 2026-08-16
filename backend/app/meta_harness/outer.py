@@ -38,6 +38,7 @@ from app.meta_harness.contracts import (
 from app.meta_harness.evaluator import Evaluator
 from app.meta_harness.harness import CodingAgentHarness
 from app.meta_harness.ledger import append_event, lifecycle_state, transition_lifecycle
+from app.meta_harness.providers import provider_for_model
 from app.meta_harness.provenance import (
     capture_git_state,
     capture_provenance,
@@ -172,12 +173,21 @@ class OuterLoopRunner:
         parent_policy: str = "best_accuracy",
         inner_model: str | None = None,
         proposer_model: str = "opus",
+        proposer_backend: str | None = None,
+        random_seed: int | None = None,
+        max_act_turns: int = 25,
+        max_verify_retries: int = 3,
         allow_global_memory: bool | None = None,
     ) -> None:
         self.run_dir = run_dir
         self.repo_root = repo_root
         self.eval_tasks_dir = eval_tasks_dir
-        self.mock_proposer = mock_proposer
+        self.proposer_backend = proposer_backend or (
+            "mock" if mock_proposer else "claude"
+        )
+        if self.proposer_backend not in {"mock", "claude", "gemini"}:
+            raise ValueError(f"unknown proposer backend: {self.proposer_backend}")
+        self.mock_proposer = self.proposer_backend == "mock"
         self.mock_bench = mock_bench
         self.trials = trials
         self.bench_workers = bench_workers
@@ -187,7 +197,11 @@ class OuterLoopRunner:
         self.mode = RunMode(mode)
         self.parent_policy = parent_policy
         self.inner_model = inner_model or CodingAgentHarness.MODEL
+        self.model_provider = provider_for_model(self.inner_model)
         self.proposer_model = proposer_model
+        self.random_seed = random_seed
+        self.max_act_turns = max_act_turns
+        self.max_verify_retries = max_verify_retries
         self.allow_global_memory = (
             self.mode == RunMode.AUTONOMOUS
             if allow_global_memory is None
@@ -280,9 +294,11 @@ class OuterLoopRunner:
             "runtime_adapter": "task-declared",
             "execution_backend": "fixed-langgraph-v1",
             "inner_model": self.inner_model,
-            "model_provider": "anthropic",
+            "model_provider": self.model_provider,
             "trials": self.trials,
             "workers": self.bench_workers,
+            "max_act_turns": self.max_act_turns,
+            "max_verify_retries": self.max_verify_retries,
             "allow_global_memory": self.allow_global_memory,
             "allow_recursive_children": False,
             "synthetic": self.mock_bench,
@@ -296,10 +312,14 @@ class OuterLoopRunner:
             runtime_adapter="task-declared",
             execution_backend="fixed-langgraph-v1",
             inner_model=self.inner_model,
+            model_provider=self.model_provider,
             trials=self.trials,
             workers=self.bench_workers,
+            max_act_turns=self.max_act_turns,
+            max_verify_retries=self.max_verify_retries,
             allow_global_memory=self.allow_global_memory,
             allow_recursive_children=False,
+            random_seed=self.random_seed,
             synthetic=self.mock_bench,
         )
 
@@ -320,12 +340,14 @@ class OuterLoopRunner:
             ),
             policy=policy,
             parent_policy=self.parent_policy,
+            random_seed=self.random_seed,
             search_task_ids=[task.id for task in self._tasks()],
             holdout_visible=False,
             persistence_backend=(
                 "postgres" if self.checkpointer is not None else "memory"
             ),
             synthetic=self.mock_bench,
+            proposer_backend=self.proposer_backend,
             mock_proposer=self.mock_proposer,
             mock_bench=self.mock_bench,
             trials=self.trials,
@@ -333,13 +355,22 @@ class OuterLoopRunner:
             proposer_model=self.proposer_model,
             proposer_evidence_access=(
                 ["synthetic_fixture"]
-                if self.mock_proposer
-                else [
-                    "evolution_summary",
-                    "frontier",
-                    "candidate_source",
-                    "raw_traces",
-                ]
+                if self.proposer_backend == "mock"
+                else (
+                    [
+                        "bounded_evolution_summary",
+                        "frontier",
+                        "candidate_source",
+                        "bounded_raw_traces",
+                    ]
+                    if self.proposer_backend == "gemini"
+                    else [
+                        "evolution_summary",
+                        "frontier",
+                        "candidate_source",
+                        "raw_traces",
+                    ]
+                )
             ),
             human_intervention=False,
             skill_path=str(self.skill_path) if self.skill_path else None,
@@ -529,18 +560,39 @@ class OuterLoopRunner:
                         if proposer_prior
                         else memory_section
                     )
-            payload = await asyncio.to_thread(
-                prp.claude_propose,
-                run_dir=execution_dir,
-                iteration=iteration,
-                parent_name=parent["name"],
-                repo_root=self.repo_root,
-                skill_path=self.skill_path,
-                proposer_prior=proposer_prior,
-                parent_source_path=parent_source_path,
-                research_mode=self.mode == RunMode.RESEARCH,
-                model=self.proposer_model,
-            )
+            if self.proposer_backend == "gemini":
+                payload = await asyncio.to_thread(
+                    prp.gemini_propose,
+                    run_dir=execution_dir,
+                    iteration=iteration,
+                    parent_name=parent["name"],
+                    repo_root=self.repo_root,
+                    skill_path=self.skill_path,
+                    proposer_prior=proposer_prior,
+                    parent_source_path=parent_source,
+                    parent_candidate_dir=(
+                        _artifact_root(parent) / "candidates" / parent_id
+                    ),
+                    model=self.proposer_model,
+                    seed=(
+                        self.random_seed + iteration
+                        if self.random_seed is not None
+                        else None
+                    ),
+                )
+            else:
+                payload = await asyncio.to_thread(
+                    prp.claude_propose,
+                    run_dir=execution_dir,
+                    iteration=iteration,
+                    parent_name=parent["name"],
+                    repo_root=self.repo_root,
+                    skill_path=self.skill_path,
+                    proposer_prior=proposer_prior,
+                    parent_source_path=parent_source_path,
+                    research_mode=self.mode == RunMode.RESEARCH,
+                    model=self.proposer_model,
+                )
         normalized_payload = payload
         if payload.get("candidates") is None and payload.get("name"):
             candidate_payload = dict(payload)
@@ -578,7 +630,9 @@ class OuterLoopRunner:
                 proposer_session_id=session_id,
                 extra={
                     "proposer_model": self.proposer_model,
+                    "proposer_backend": self.proposer_backend,
                     "parent_policy": self.parent_policy,
+                    "random_seed": self.random_seed,
                     "iteration": iteration,
                 },
             )
@@ -1044,6 +1098,10 @@ class OuterLoopRunner:
     ) -> str:
         if self.parent_policy == "pareto_sample" and state.get("frontier"):
             frontier_ids = sorted(str(value) for value in state["frontier"])
+            if self.random_seed is not None:
+                material = f"{self.random_seed}:{state['iteration']}".encode()
+                index = int(sha256_bytes(material)[:8], 16) % len(frontier_ids)
+                return frontier_ids[index]
             return frontier_ids[state["iteration"] % len(frontier_ids)]
         best_candidate_id = state.get("best_candidate_id")
         if best_candidate_id:
@@ -1135,6 +1193,10 @@ async def run_outer_loop(
     parent_policy: str = "best_accuracy",
     inner_model: str | None = None,
     proposer_model: str = "opus",
+    proposer_backend: str | None = None,
+    random_seed: int | None = None,
+    max_act_turns: int = 25,
+    max_verify_retries: int = 3,
     allow_global_memory: bool | None = None,
 ) -> MetaHarnessState:
     runner = OuterLoopRunner(
@@ -1152,6 +1214,10 @@ async def run_outer_loop(
         parent_policy=parent_policy,
         inner_model=inner_model,
         proposer_model=proposer_model,
+        proposer_backend=proposer_backend,
+        random_seed=random_seed,
+        max_act_turns=max_act_turns,
+        max_verify_retries=max_verify_retries,
         allow_global_memory=allow_global_memory,
     )
     initial: MetaHarnessState = {
@@ -1167,6 +1233,7 @@ async def run_outer_loop(
         "parent_policy": parent_policy,
         "mode": RunMode(mode).value,
         "evaluation_policy": runner._policy().model_dump(mode="json"),
+        "random_seed": random_seed,
     }
     runner._write_manifest(run_dir, status="running")
     manifest_path = run_dir / "manifest.json"
@@ -1263,6 +1330,10 @@ async def resume_outer_loop(
         parent_policy=manifest.get("parent_policy", "best_accuracy"),
         inner_model=policy.get("inner_model"),
         proposer_model=manifest.get("proposer_model", "opus"),
+        proposer_backend=manifest.get("proposer_backend"),
+        random_seed=manifest.get("random_seed"),
+        max_act_turns=int(policy.get("max_act_turns", 25)),
+        max_verify_retries=int(policy.get("max_verify_retries", 3)),
         allow_global_memory=policy.get("allow_global_memory"),
     )
     current_lifecycle = lifecycle_state(

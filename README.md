@@ -112,8 +112,8 @@ The meta-harness loop is no longer a sequence — it's a search tree.
 - Python 3.11+ and [uv](https://github.com/astral-sh/uv)
 - Docker (for local Postgres)
 - Node.js 20+ + npm (for the dashboard, optional until step 11)
-- The [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) (`claude`) for the real proposer
-- An Anthropic API key (`ANTHROPIC_API_KEY`)
+- The [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) (`claude`) for the Claude proposer, or a Google AI Studio key for the Gemini proposer
+- `ANTHROPIC_API_KEY` for Claude inner models, or `GOOGLE_API_KEY` for Gemini models
 
 **Get running**
 
@@ -138,6 +138,13 @@ uv run meta-harness report smoke
 # Real search; fixed inner model, no global memory, measured provider usage
 uv run meta-harness loop --proposer claude --budget 1 --fresh \
   --mode research --run-name measured-search
+
+# Gemini alternative: high-quality Flash proposer + lower-cost fixed Flash-Lite inner model
+uv run meta-harness loop --proposer gemini \
+  --proposer-model gemini-3.6-flash \
+  --inner-model gemini-3.1-flash-lite \
+  --budget 1 --trials 1 --seed 101 --max-act-turns 10 --mode research \
+  --run-name gemini-search --fresh
 
 # Finalize only after measured search, without feeding holdout results back
 uv run meta-harness finalize measured-search
@@ -167,10 +174,10 @@ provenance APIs/UI.
 | Frontend lint/build | implemented |
 | Synthetic mock loop | implemented and visibly labeled synthetic |
 | Postgres checkpoint/memory paths | implemented; requires running Postgres for verification |
-| Live inner/provider benchmark | requires credentials and explicit execution |
+| Live inner/provider benchmark | measured Gemini path implemented and exercised |
 | Strong security isolation | not implemented; trusted-local profile only |
 | Recursive/RLM backend | interface only; no backend registered |
-| Generalization study | not run; task/model distribution remains too small |
+| Generalization study | three-seed small-task pilot completed; negative result, broader study still required |
 
 Run `cd backend && uv run pytest tests/ -q` at any commit to confirm the
 test floor.

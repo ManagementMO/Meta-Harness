@@ -240,10 +240,27 @@ def compare_runs(run_dirs: list[Path]) -> dict[str, Any]:
         raise ValueError("runs use different evaluator runtime sources")
     if len(dependency_hashes) > 1:
         raise ValueError("runs use different dependency locks")
+    finalizations = [
+        (
+            json.loads((run_dir / "finalization.json").read_text())
+            if (run_dir / "finalization.json").exists()
+            else None
+        )
+        for run_dir in run_dirs
+    ]
+    if any(finalization is not None for finalization in finalizations) and not all(
+        finalization is not None for finalization in finalizations
+    ):
+        raise ValueError("all compared runs must have holdout finalization or none")
+    evaluation_phase = "holdout" if all(finalizations) else "search"
     accuracies: list[float] = []
-    for report in reports:
+    for report, finalization in zip(reports, finalizations, strict=True):
         best_id = report.get("global_best_candidate_id") or report.get("best_candidate_id")
-        result = (report.get("results") or {}).get(best_id, {})
+        result = (
+            (finalization.get("evaluations") or {}).get(best_id, {})
+            if finalization is not None
+            else (report.get("results") or {}).get(best_id, {})
+        )
         accuracy = result.get("accuracy_value")
         if accuracy is None:
             metric = result.get("accuracy") or {}
@@ -258,6 +275,8 @@ def compare_runs(run_dirs: list[Path]) -> dict[str, Any]:
         "schema_version": 1,
         "run_ids": [report["run_id"] for report in reports],
         "n_runs": len(reports),
+        "evaluation_phase": evaluation_phase,
+        "random_seeds": [report.get("random_seed") for report in reports],
         "best_accuracies": accuracies,
         "mean_accuracy": mean,
         "sample_standard_deviation": standard_deviation,

@@ -128,6 +128,41 @@ def test_compare_runs_reports_confidence_interval(tmp_path: Path) -> None:
     assert result["confidence_interval_95"][1] >= 0.7
 
 
+def test_compare_runs_prefers_completed_holdout_finalizations(tmp_path: Path) -> None:
+    first = _run(tmp_path, "run-a", 0.2)
+    second = _run(tmp_path, "run-b", 0.9)
+    for run_dir, seed, holdout_accuracy in (
+        (first, 101, 0.5),
+        (second, 202, 1.0),
+    ):
+        manifest_path = run_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["random_seed"] = seed
+        manifest_path.write_text(json.dumps(manifest))
+        candidate_id = manifest["best_candidate_id"]
+        (run_dir / "finalization.json").write_text(
+            json.dumps(
+                {
+                    "evaluations": {
+                        candidate_id: {
+                            "accuracy": {
+                                "value": holdout_accuracy,
+                                "status": "measured",
+                            }
+                        }
+                    }
+                }
+            )
+        )
+
+    result = compare_runs([first, second])
+
+    assert result["evaluation_phase"] == "holdout"
+    assert result["random_seeds"] == [101, 202]
+    assert result["best_accuracies"] == [0.5, 1.0]
+    assert result["mean_accuracy"] == pytest.approx(0.75)
+
+
 def test_compare_runs_rejects_runtime_drift(tmp_path: Path) -> None:
     first = _run(tmp_path, "run-a", 0.6)
     second = _run(tmp_path, "run-b", 0.8)
