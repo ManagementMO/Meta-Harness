@@ -356,7 +356,9 @@ function TrajectoryFlow() {
   // Refit as the tree grows — debounced so streams don't thrash the camera.
   // Never fit below readable zoom: clamp and recentre on the focus node instead.
   const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
   useEffect(() => {
     if (nodes.length === 0) return;
     if (fitTimer.current) clearTimeout(fitTimer.current);
